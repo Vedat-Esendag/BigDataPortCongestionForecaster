@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "AisPosition",
+  "namespace": "com.sdu.portcongestion",
+  "doc": "One AIS position report (message types 1, 2, 3, 18, 19). Values are kept as received: sentinel codes such as sog=102.3, cog=360, heading=511 are handled in spark/common/clean.py, not here.",
+  "fields": [
+    {"name": "mmsi", "type": "long", "doc": "Maritime Mobile Service Identity of the ship. Also the Kafka record key."},
+    {"name": "event_time", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Time the position was reported, UTC."},
+    {"name": "received_time", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Time the producer received the message, UTC."},
+    {"name": "lat", "type": "double"},
+    {"name": "lon", "type": "double"},
+    {"name": "sog", "type": ["null", "double"], "default": null, "doc": "Speed over ground in knots."},
+    {"name": "cog", "type": ["null", "double"], "default": null, "doc": "Course over ground in degrees."},
+    {"name": "heading", "type": ["null", "int"], "default": null, "doc": "True heading in degrees."},
+    {"name": "rot", "type": ["null", "double"], "default": null, "doc": "Rate of turn."},
+    {"name": "nav_status", "type": ["null", "int"], "default": null, "doc": "AIS navigational status code."},
+    {"name": "message_type", "type": ["null", "int"], "default": null, "doc": "AIS message id."},
+    {"name": "source", "type": "string", "default": "aisstream"}
+  ]
+}

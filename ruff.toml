@@ -1,0 +1,21 @@
+# Shared ruff config for every Python package in the repo.
+target-version = "py312"
+line-length = 100
+extend-exclude = ["services/dashboard", "data"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[lint.isort]
+# Each project puts its own packages on the path, so ruff cannot discover them from the repo root.
+known-first-party = [
+  "common", "streaming", "batch", "training", "api", "ais_producer",
+  "register_schemas", "render_connectors", "download_dma",
+]
+
+[lint.per-file-ignores]
+# pytest fixtures are injected by name
+"**/tests/**" = ["B011"]
+
+[format]
+quote-style = "double"

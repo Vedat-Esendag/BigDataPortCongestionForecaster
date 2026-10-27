@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "Alert",
+  "namespace": "com.sdu.portcongestion",
+  "doc": "Threshold alert on a port outlook slot, written by ksqlDB (ksql/alerts.sql). Key: port.",
+  "fields": [
+    {"name": "port", "type": "string", "doc": "Also the Kafka record key."},
+    {"name": "alert_level", "type": "string", "doc": "'warning' or 'critical'."},
+    {"name": "slot_start", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "metric", "type": "string", "doc": "Which metric crossed its threshold, for example 'late_count'."},
+    {"name": "value", "type": "double"},
+    {"name": "threshold", "type": "double"},
+    {"name": "message", "type": "string"},
+    {"name": "created_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

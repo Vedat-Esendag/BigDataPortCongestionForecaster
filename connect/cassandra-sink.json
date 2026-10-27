@@ -1,0 +1,21 @@
+{
+  "name": "cassandra-sink",
+  "config": {
+    "connector.class": "com.datastax.oss.kafka.sink.CassandraSinkConnector",
+    "tasks.max": "1",
+    "topics": "ship.prediction,port.outlook,analytics.weather_delay,eval.metrics",
+
+    "contactPoints": "cassandra",
+    "port": "9042",
+    "loadBalancing.localDc": "datacenter1",
+
+    "topic.ship.prediction.portcongestion.ship_prediction_by_port_day.mapping": "port=value.port, day=value.day, event_time=value.event_time, mmsi=value.mmsi, broadcast_eta=value.broadcast_eta, predicted_eta=value.predicted_eta, eta_lower=value.eta_lower, eta_upper=value.eta_upper, model_version=value.model_version, reason_codes=value.reason_codes, lat=value.lat, lon=value.lon, processing_time=value.processing_time",
+    "topic.port.outlook.portcongestion.port_outlook_by_port_day.mapping": "port=value.port, day=value.day, computed_at=value.computed_at, slot_start=value.slot_start, slot_end=value.slot_end, expected_arrivals=value.expected_arrivals, late_count=value.late_count, bunching_flag=value.bunching_flag, expected_waiting_ships=value.expected_waiting_ships",
+    "topic.analytics.weather_delay.portcongestion.weather_delay_by_port.mapping": "port=value.port, weather_variable=value.weather_variable, bucket=value.bucket, n_arrivals=value.n_arrivals, mean_delay_min=value.mean_delay_min, median_delay_min=value.median_delay_min, p90_delay_min=value.p90_delay_min, period_start=value.period_start, period_end=value.period_end, computed_at=value.computed_at",
+    "topic.eval.metrics.portcongestion.eval_metrics_by_port_day.mapping": "port=value.port, day=value.day, model_version=value.model_version, horizon_hours=value.horizon_hours, metric=value.metric, metric_value=value.value, n_samples=value.n_samples, computed_at=value.computed_at",
+
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "io.confluent.connect.avro.AvroConverter",
+    "value.converter.schema.registry.url": "http://schema-registry:8081"
+  }
+}

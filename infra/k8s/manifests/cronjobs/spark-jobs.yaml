@@ -1,0 +1,145 @@
+# Training (F7), weather-to-delay analytics (F5) and forecast evaluation (F12) as CronJobs.
+# Each CronJob starts spark-submit, which asks Kubernetes for a driver and executor pods
+# (so the cluster needs the spark ServiceAccount below).
+#
+# All three are SUSPENDED because the jobs are still stubs and would fail on purpose.
+# Remove `suspend: true` when the job it runs is implemented.
+#
+# STARTING POINT, not validated on a cluster. The image is a placeholder: build it from
+# spark/Dockerfile and push it to a registry the cluster can pull from.
+# Spark on YARN is the alternative being discussed (docs/decisions.md); these would then be
+# replaced by YARN submissions from a scheduler of the course cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark
+  namespace: port-congestion
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark
+  namespace: port-congestion
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, configmaps, persistentvolumeclaims]
+    verbs: [create, get, list, watch, delete, deletecollection, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark
+  namespace: port-congestion
+subjects:
+  - kind: ServiceAccount
+    name: spark
+roleRef:
+  kind: Role
+  name: spark
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: train-eta
+  namespace: port-congestion
+spec:
+  schedule: "0 2 * * 0" # Sundays 02:00 UTC
+  suspend: true
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: spark
+          restartPolicy: Never
+          containers:
+            - name: submit
+              image: registry.example.org/port-congestion/spark:4.2.0
+              command: ["bash", "-c"]
+              args:
+                - >
+                  /opt/spark/bin/spark-submit
+                  --master k8s://https://kubernetes.default.svc --deploy-mode cluster
+                  --name train-eta
+                  --conf spark.kubernetes.namespace=port-congestion
+                  --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark
+                  --conf spark.kubernetes.container.image=registry.example.org/port-congestion/spark:4.2.0
+                  --conf spark.kubernetes.file.upload.path=hdfs://namenode:8020/spark-upload
+                  --conf spark.jars.ivy=/tmp/.ivy2
+                  --packages org.apache.spark:spark-avro_2.13:4.2.0
+                  --py-files local:///opt/app/spark/dist/common.zip
+                  local:///opt/app/spark/training/train_eta.py
+                  --start $(date -u -d '-30 days' +%F) --end $(date -u -d yesterday +%F)
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: analytics-weather-delay
+  namespace: port-congestion
+spec:
+  schedule: "0 3 * * *" # daily 03:00 UTC
+  suspend: true
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: spark
+          restartPolicy: Never
+          containers:
+            - name: submit
+              image: registry.example.org/port-congestion/spark:4.2.0
+              command: ["bash", "-c"]
+              args:
+                - >
+                  /opt/spark/bin/spark-submit
+                  --master k8s://https://kubernetes.default.svc --deploy-mode cluster
+                  --name analytics-weather-delay
+                  --conf spark.kubernetes.namespace=port-congestion
+                  --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark
+                  --conf spark.kubernetes.container.image=registry.example.org/port-congestion/spark:4.2.0
+                  --conf spark.kubernetes.file.upload.path=hdfs://namenode:8020/spark-upload
+                  --conf spark.jars.ivy=/tmp/.ivy2
+                  --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0,org.apache.spark:spark-avro_2.13:4.2.0
+                  --py-files local:///opt/app/spark/dist/common.zip
+                  local:///opt/app/spark/batch/analytics_weather_delay.py
+                  --bootstrap pc-kafka-kafka-bootstrap:9092 --registry http://schema-registry:8081
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: evaluate-forecasts
+  namespace: port-congestion
+spec:
+  schedule: "0 4 * * *" # daily 04:00 UTC, evaluates yesterday
+  suspend: true
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: spark
+          restartPolicy: Never
+          containers:
+            - name: submit
+              image: registry.example.org/port-congestion/spark:4.2.0
+              command: ["bash", "-c"]
+              args:
+                - >
+                  /opt/spark/bin/spark-submit
+                  --master k8s://https://kubernetes.default.svc --deploy-mode cluster
+                  --name evaluate-forecasts
+                  --conf spark.kubernetes.namespace=port-congestion
+                  --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark
+                  --conf spark.kubernetes.container.image=registry.example.org/port-congestion/spark:4.2.0
+                  --conf spark.kubernetes.file.upload.path=hdfs://namenode:8020/spark-upload
+                  --conf spark.jars.ivy=/tmp/.ivy2
+                  --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0,org.apache.spark:spark-avro_2.13:4.2.0
+                  --py-files local:///opt/app/spark/dist/common.zip
+                  local:///opt/app/spark/batch/evaluate_forecasts.py
+                  --day $(date -u -d yesterday +%F)
+                  --bootstrap pc-kafka-kafka-bootstrap:9092 --registry http://schema-registry:8081

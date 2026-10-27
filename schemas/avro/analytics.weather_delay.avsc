@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "WeatherDelayAnalytics",
+  "namespace": "com.sdu.portcongestion",
+  "doc": "Batch result of the weather-to-delay analysis: arrival delay statistics per weather variable bucket. Written by spark/batch/analytics_weather_delay.py, stored in Cassandra by the sink connector. Key: port.",
+  "fields": [
+    {"name": "port", "type": "string", "doc": "Also the Kafka record key."},
+    {"name": "weather_variable", "type": "string", "doc": "For example 'wind_speed_kn' or 'wave_height_m'."},
+    {"name": "bucket", "type": "string", "doc": "Value range label, for example '10-15'."},
+    {"name": "n_arrivals", "type": "int"},
+    {"name": "mean_delay_min", "type": "double"},
+    {"name": "median_delay_min", "type": "double"},
+    {"name": "p90_delay_min", "type": "double"},
+    {"name": "period_start", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Start of the arrivals included in the analysis."},
+    {"name": "period_end", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "computed_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

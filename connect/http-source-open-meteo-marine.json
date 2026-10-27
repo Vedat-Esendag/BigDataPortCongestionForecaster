@@ -1,0 +1,37 @@
+{
+  "name": "open-meteo-marine-{{PORT_ID}}",
+  "config": {
+    "connector.class": "org.apache.camel.kafkaconnector.httpsource.CamelHttpsourceSourceConnector",
+    "tasks.max": "1",
+    "topics": "weather.forecast",
+
+    "camel.kamelet.http-source.url": "https://marine-api.open-meteo.com/v1/marine?latitude={{OPEN_METEO_LAT}}&longitude={{OPEN_METEO_LON}}&hourly=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height,ocean_current_velocity&forecast_days=3&timezone=UTC",
+    "camel.kamelet.http-source.period": "3600000",
+
+    "transforms": "Payload,Port,Product,Location,Source,FetchedAt,Key,KeyField",
+    "transforms.Payload.type": "org.apache.kafka.connect.transforms.HoistField$Value",
+    "transforms.Payload.field": "payload",
+    "transforms.Port.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.Port.static.field": "port",
+    "transforms.Port.static.value": "{{PORT_ID}}",
+    "transforms.Product.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.Product.static.field": "product",
+    "transforms.Product.static.value": "marine",
+    "transforms.Location.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.Location.static.field": "location_id",
+    "transforms.Location.static.value": "{{PORT_ID}}:open_meteo",
+    "transforms.Source.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.Source.static.field": "source",
+    "transforms.Source.static.value": "open-meteo",
+    "transforms.FetchedAt.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.FetchedAt.timestamp.field": "fetched_at",
+    "transforms.Key.type": "org.apache.kafka.connect.transforms.ValueToKey",
+    "transforms.Key.fields": "port",
+    "transforms.KeyField.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+    "transforms.KeyField.field": "port",
+
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "io.confluent.connect.avro.AvroConverter",
+    "value.converter.schema.registry.url": "http://schema-registry:8081"
+  }
+}

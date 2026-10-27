@@ -1,0 +1,99 @@
+# Schema Registry and ksqlDB (Confluent Community License images). Strimzi has no operator for them.
+# Image tags repeat CP_VERSION in versions.env.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schema-registry
+  namespace: port-congestion
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: schema-registry}
+  template:
+    metadata:
+      labels: {app: schema-registry}
+    spec:
+      containers:
+        - name: schema-registry
+          image: confluentinc/cp-schema-registry:8.4.0
+          ports: [{containerPort: 8081}]
+          env:
+            - {name: SCHEMA_REGISTRY_HOST_NAME, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
+            - {name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS, value: "pc-kafka-kafka-bootstrap:9092"}
+            - {name: SCHEMA_REGISTRY_LISTENERS, value: "http://0.0.0.0:8081"}
+          readinessProbe:
+            httpGet: {path: /subjects, port: 8081}
+            initialDelaySeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits: {memory: 768Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schema-registry
+  namespace: port-congestion
+spec:
+  selector: {app: schema-registry}
+  ports: [{port: 8081, targetPort: 8081}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ksqldb
+  namespace: port-congestion
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ksqldb}
+  template:
+    metadata:
+      labels: {app: ksqldb}
+    spec:
+      containers:
+        - name: ksqldb
+          image: confluentinc/cp-ksqldb-server:8.4.0
+          ports: [{containerPort: 8088}]
+          env:
+            - {name: KSQL_BOOTSTRAP_SERVERS, value: "pc-kafka-kafka-bootstrap:9092"}
+            - {name: KSQL_LISTENERS, value: "http://0.0.0.0:8088"}
+            - {name: KSQL_KSQL_SCHEMA_REGISTRY_URL, value: "http://schema-registry:8081"}
+            - {name: KSQL_KSQL_SERVICE_ID, value: "portcongestion_"}
+          readinessProbe:
+            httpGet: {path: /info, port: 8088}
+            initialDelaySeconds: 20
+          resources:
+            requests: {cpu: 200m, memory: 512Mi}
+            limits: {memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ksqldb
+  namespace: port-congestion
+spec:
+  selector: {app: ksqldb}
+  ports: [{port: 8088, targetPort: 8088}]
+---
+# Runs ksql/history_split.sql and ksql/alerts.sql once. Create the ConfigMap first:
+#   kubectl -n port-congestion create configmap ksql-statements --from-file=ksql/
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ksql-init
+  namespace: port-congestion
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ksql
+          image: confluentinc/cp-ksqldb-cli:8.4.0
+          command: ["sh", "-c"]
+          args:
+            - for f in history_split alerts; do ksql http://ksqldb:8088 --file /ksql/$f.sql || exit 1; done
+          volumeMounts: [{name: statements, mountPath: /ksql}]
+      volumes:
+        - name: statements
+          configMap: {name: ksql-statements}

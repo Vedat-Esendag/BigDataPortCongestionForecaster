@@ -1,0 +1,19 @@
+# Keep line endings as LF everywhere. A Windows checkout with core.autocrlf would otherwise turn
+# shell scripts and env files into CRLF, which breaks them inside Linux containers and WSL.
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.env text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sql text eol=lf
+*.cql text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.jar binary

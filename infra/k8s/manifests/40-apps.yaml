@@ -1,0 +1,118 @@
+# Our own services. Images are placeholders: build them (see infra/k8s/README.md) and replace
+# the registry name. Secrets and config are created with kubectl, never stored in the repo:
+#   kubectl -n port-congestion create secret generic pc-secrets \
+#     --from-literal=AISSTREAM_API_KEY=... --from-literal=DMI_API_KEY=... --from-literal=ALERT_WEBHOOK_URL=...
+#   kubectl -n port-congestion create configmap pc-config --from-file=config/
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ais-producer
+  namespace: port-congestion
+spec:
+  replicas: 1 # one connection to aisstream; do not scale this out
+  selector:
+    matchLabels: {app: ais-producer}
+  template:
+    metadata:
+      labels: {app: ais-producer}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+    spec:
+      containers:
+        - name: ais-producer
+          image: registry.example.org/port-congestion/ais-producer:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: KAFKA_BOOTSTRAP_SERVERS, value: "pc-kafka-kafka-bootstrap:9092"}
+            - {name: SCHEMA_REGISTRY_URL, value: "http://schema-registry:8081"}
+            - {name: PORTS_CONFIG, value: /app/config/ports.yaml}
+            - {name: PRODUCER_METRICS_PORT, value: "9100"}
+            - name: AISSTREAM_API_KEY
+              valueFrom: {secretKeyRef: {name: pc-secrets, key: AISSTREAM_API_KEY}}
+          ports: [{containerPort: 9100, name: metrics}]
+          volumeMounts: [{name: config, mountPath: /app/config, readOnly: true}]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 256Mi}
+      volumes:
+        - name: config
+          configMap: {name: pc-config}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: port-congestion
+spec:
+  replicas: 2 # stateless, scale freely
+  selector:
+    matchLabels: {app: api}
+  template:
+    metadata:
+      labels: {app: api}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics/
+    spec:
+      containers:
+        - name: api
+          image: registry.example.org/port-congestion/api:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: REDIS_URL, value: "redis://redis:6379/0"}
+            - {name: CASSANDRA_CONTACT_POINTS, value: cassandra}
+            - {name: CASSANDRA_KEYSPACE, value: portcongestion}
+            - {name: PORTS_CONFIG, value: /app/config/ports.yaml}
+          ports: [{containerPort: 8000}]
+          readinessProbe:
+            httpGet: {path: /health, port: 8000}
+          volumeMounts: [{name: config, mountPath: /app/config, readOnly: true}]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 256Mi}
+      volumes:
+        - name: config
+          configMap: {name: pc-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: port-congestion
+spec:
+  selector: {app: api}
+  ports: [{port: 8000, targetPort: 8000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: port-congestion
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: dashboard}
+  template:
+    metadata:
+      labels: {app: dashboard}
+    spec:
+      containers:
+        - name: dashboard
+          image: registry.example.org/port-congestion/dashboard:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 80}]
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits: {memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: port-congestion
+spec:
+  selector: {app: dashboard}
+  ports: [{port: 80, targetPort: 80}]
+# TODO: an Ingress (the course cluster decides the controller and host name) for the dashboard Service.

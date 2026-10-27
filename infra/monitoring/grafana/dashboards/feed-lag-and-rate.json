@@ -1,0 +1,109 @@
+{
+  "uid": "feed-lag-and-rate",
+  "title": "Feed lag and message rate (placeholder)",
+  "tags": ["port-congestion"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Consumer group lag (messages behind)",
+      "description": "Data freshness. Covers Kafka Connect sinks and ksqlDB. Spark is not included, see panel 6.",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag)",
+          "legendFormat": "{{consumergroup}} / {{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Messages per second by topic",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset[1m]))",
+          "legendFormat": "{{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "AIS messages received from aisstream (per second)",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (message_type) (rate(ais_messages_received_total[1m]))",
+          "legendFormat": "{{message_type}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Seconds since the last AIS message",
+      "description": "Goes up when the feed stalls or the WebSocket is down.",
+      "gridPos": { "x": 12, "y": 8, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 30 },
+              { "color": "red", "value": 120 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "time() - ais_last_message_timestamp_seconds" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Producer errors and reconnects (last 5 min)",
+      "gridPos": { "x": 18, "y": 8, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage) (increase(ais_produce_errors_total[5m]))",
+          "legendFormat": "produce errors: {{stage}}"
+        },
+        {
+          "refId": "B",
+          "expr": "increase(ais_reconnects_total[5m])",
+          "legendFormat": "reconnects"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "text",
+      "title": "TODO(F8): Spark live job lag",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 4 },
+      "options": {
+        "mode": "markdown",
+        "content": "Spark Structured Streaming keeps its offsets in its own checkpoint and does not commit them to Kafka, so the exporter cannot see its lag. Add panels from the job's own metrics (`spark-live` scrape job, input rate and batch duration) once the job runs. This dashboard is a placeholder."
+      }
+    }
+  ]
+}

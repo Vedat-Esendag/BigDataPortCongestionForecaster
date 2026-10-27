@@ -1,0 +1,17 @@
+{
+  "name": "webhook-sink",
+  "config": {
+    "connector.class": "io.lenses.streamreactor.connect.http.sink.HttpSinkConnector",
+    "tasks.max": "1",
+    "topics": "alerts",
+
+    "connect.http.method": "POST",
+    "connect.http.endpoint": "${env:ALERT_WEBHOOK_URL}",
+    "connect.http.request.content": "{\"port\": \"{{key}}\", \"level\": \"{{value.alert_level}}\", \"metric\": \"{{value.metric}}\", \"value\": {{value.value}}, \"threshold\": {{value.threshold}}, \"message\": \"{{value.message}}\"}",
+    "connect.http.request.headers": "Content-Type,application/json",
+
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "io.confluent.connect.avro.AvroConverter",
+    "value.converter.schema.registry.url": "http://schema-registry:8081"
+  }
+}

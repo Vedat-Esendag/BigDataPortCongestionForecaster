@@ -1,0 +1,11 @@
+# Entry point:  docker compose -f infra/docker-compose.yml --profile core up -d
+#
+# Why the include: versions live in ../versions.env (one place for the whole repo). Compose only
+# auto-loads a file called .env from this folder, so the services file is included with that env
+# file explicitly. This also makes a bare `docker compose -f infra/docker-compose.yml config` work.
+# Use `make up`, `make up-core` and `make compose-config` rather than typing profiles by hand.
+name: portcongestion
+
+include:
+  - path: compose.services.yml
+    env_file: ../versions.env

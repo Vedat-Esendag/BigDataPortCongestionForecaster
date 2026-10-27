@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "PortOutlook",
+  "namespace": "com.sdu.portcongestion",
+  "doc": "Congestion outlook for one port and one time slot, recomputed continuously for the next 24 to 48 hours. Key: port.",
+  "fields": [
+    {"name": "port", "type": "string", "doc": "Also the Kafka record key."},
+    {"name": "slot_start", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "slot_end", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "expected_arrivals", "type": "int", "doc": "Ships predicted to arrive in the slot."},
+    {"name": "late_count", "type": "int", "doc": "Ships whose predicted ETA is later than the broadcast ETA by more than the late threshold."},
+    {"name": "bunching_flag", "type": "boolean", "doc": "True when arrivals in the slot reach the bunching threshold."},
+    {"name": "expected_waiting_ships", "type": "double", "doc": "Expected number of ships waiting at anchor during the slot."},
+    {"name": "computed_at", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "day", "type": "string", "doc": "UTC date of computed_at as yyyy-MM-dd. Cassandra partition column."}
+  ]
+}

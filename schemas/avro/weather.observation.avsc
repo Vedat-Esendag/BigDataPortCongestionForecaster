@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "WeatherObservation",
+  "namespace": "com.sdu.portcongestion",
+  "doc": "One DMI observation API response (wind ground truth) for one port and one station. Stored as raw GeoJSON and parsed in Spark. Key: port.",
+  "fields": [
+    {"name": "port", "type": "string", "doc": "Port id from config/ports.yaml. Also the Kafka record key."},
+    {"name": "station_id", "type": "string", "doc": "DMI station id."},
+    {"name": "source", "type": "string", "default": "dmi"},
+    {"name": "fetched_at", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "When the connector fetched the response."},
+    {"name": "payload", "type": "string", "doc": "Raw JSON response body."}
+  ]
+}

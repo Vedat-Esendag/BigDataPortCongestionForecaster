@@ -1,0 +1,46 @@
+# Port definitions. Everything port-specific lives here, never in code.
+# The project covers one port, Esbjerg. Another port is one more entry in this list.
+#
+# PLACEHOLDERS: every coordinate below is a rough hand-drawn guess so the pipeline has
+# something to run against. Replace the polygons with surveyed geometry before trusting any
+# port event. Polygons use GeoJSON order [lon, lat] and must be closed (first point == last point).
+#
+# Fields
+#   id             short stable key used in Kafka keys, Redis keys and Cassandra partitions
+#   country        ISO code. Keep it QUOTED: YAML reads some codes (NO, for one) as false.
+#   center         map center and weather lookup point
+#   bbox           aisstream subscription box (the producer converts it to its [lat, lon] corner format)
+#   approach_zone  area where a ship counts as "approaching" (see thresholds.yaml for the radius fallback)
+#   anchorage      area where ships wait at anchor
+#   berth_area     area of the quays
+#   weather        Open-Meteo lookup point and DMI station ids
+
+ports:
+  - id: dkebj
+    name: Esbjerg
+    country: "DK"
+    unlocode: DKEBJ
+    placeholder: true
+    center: {lat: 55.47, lon: 8.43}
+    bbox: {min_lat: 55.20, min_lon: 8.00, max_lat: 55.70, max_lon: 8.60}
+    approach_zone:
+      - [8.00, 55.35]
+      - [8.45, 55.35]
+      - [8.45, 55.60]
+      - [8.00, 55.60]
+      - [8.00, 55.35]
+    anchorage:
+      - [8.00, 55.40]
+      - [8.20, 55.40]
+      - [8.20, 55.50]
+      - [8.00, 55.50]
+      - [8.00, 55.40]
+    berth_area:
+      - [8.42, 55.455]
+      - [8.46, 55.455]
+      - [8.46, 55.485]
+      - [8.42, 55.485]
+      - [8.42, 55.455]
+    weather:
+      open_meteo: {lat: 55.45, lon: 8.20}
+      dmi_station_ids: ["06080"] # placeholder, verify the station id in the DMI station list

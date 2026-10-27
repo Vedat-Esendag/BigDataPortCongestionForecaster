@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "EvalMetric",
+  "namespace": "com.sdu.portcongestion",
+  "doc": "One forecast evaluation metric for one port, model version and horizon. Written by spark/batch/evaluate_forecasts.py, stored in Cassandra by the sink connector. Key: port.",
+  "fields": [
+    {"name": "port", "type": "string", "doc": "Also the Kafka record key."},
+    {"name": "day", "type": "string", "doc": "UTC date the evaluated predictions were made, yyyy-MM-dd. Cassandra partition column."},
+    {"name": "model_version", "type": "string"},
+    {"name": "horizon_hours", "type": "int", "doc": "How far ahead the evaluated predictions looked."},
+    {"name": "metric", "type": "string", "doc": "For example 'mae_minutes', 'coverage_70', 'broadcast_mae_minutes'."},
+    {"name": "value", "type": "double"},
+    {"name": "n_samples", "type": "int"},
+    {"name": "computed_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

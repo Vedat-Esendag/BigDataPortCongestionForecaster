@@ -1,0 +1,11 @@
+# K8ssandra operator: runs Apache Cassandra on Kubernetes (with cass-operator inside).
+#   helm repo add k8ssandra https://helm.k8ssandra.io/stable
+#   helm install k8ssandra-operator k8ssandra/k8ssandra-operator \
+#     --version $K8SSANDRA_OPERATOR_VERSION -n port-congestion -f infra/k8s/helm-values/k8ssandra-operator.yaml
+# STARTING POINT: the value names were not checked against a cluster; run
+# `helm show values k8ssandra/k8ssandra-operator` and adjust.
+global:
+  clusterScoped: false # watch only this namespace
+
+cass-operator:
+  enabled: true

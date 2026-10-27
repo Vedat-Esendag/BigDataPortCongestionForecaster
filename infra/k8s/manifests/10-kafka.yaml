@@ -1,0 +1,118 @@
+# Kafka (KRaft) through the Strimzi operator. Needs infra/k8s/helm-values/strimzi-operator.yaml first.
+# The bootstrap address inside the cluster is pc-kafka-kafka-bootstrap:9092.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  namespace: port-congestion
+  labels:
+    strimzi.io/cluster: pc-kafka
+spec:
+  replicas: 3
+  roles:
+    - controller
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 20Gi
+        kraftMetadata: shared
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: pc-kafka
+  namespace: port-congestion
+spec:
+  kafka:
+    version: 4.4.0
+    metadataVersion: 4.4-IV0
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+      auto.create.topics.enable: false
+  entityOperator:
+    topicOperator: {}
+---
+# Topics, same names and partition counts as scripts/create_topics.sh.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: ais.position, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 3, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: ais.static, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 3, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: ais.history.raw, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 3, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: ais.history.position, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 3, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: ais.history.static, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 3, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: weather.forecast, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 1, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: weather.observation, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 1, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: ship.prediction, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 3, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: port.outlook, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 1, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: alerts, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 1, replicas: 3}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: analytics.weather-delay, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 1, replicas: 3, topicName: analytics.weather_delay} # resource names cannot contain an underscore
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  {name: eval.metrics, namespace: port-congestion, labels: {strimzi.io/cluster: pc-kafka}}
+spec: {partitions: 1, replicas: 3}

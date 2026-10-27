@@ -1,0 +1,77 @@
+# Kafka Connect through Strimzi. Strimzi builds the image itself from the plugin list below.
+# STARTING POINT, not validated on a cluster:
+#   - spec.build.output.image is a placeholder: point it at a registry the cluster can push to
+#     (and add pushSecret if it needs credentials).
+#   - Strimzi's base image has no Avro converter. It is added as a plugin below from Confluent's
+#     Maven repository; if the converter fails to load, add its dependencies
+#     (kafka-schema-registry-client, kafka-avro-serializer, avro and friends) as artifacts too.
+#   - Plugin versions repeat versions.env. Keep them in step by hand.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaConnect
+metadata:
+  name: pc-connect
+  namespace: port-congestion
+  annotations:
+    strimzi.io/use-connector-resources: "false" # connectors are deployed with scripts/deploy_connectors.sh
+spec:
+  version: 4.4.0
+  replicas: 1
+  bootstrapServers: pc-kafka-kafka-bootstrap:9092
+  groupId: portcongestion-connect
+  configStorageTopic: _connect-configs
+  offsetStorageTopic: _connect-offsets
+  statusStorageTopic: _connect-status
+  config:
+    config.storage.replication.factor: 3
+    offset.storage.replication.factor: 3
+    status.storage.replication.factor: 3
+    key.converter: org.apache.kafka.connect.storage.StringConverter
+    value.converter: io.confluent.connect.avro.AvroConverter
+    value.converter.schema.registry.url: http://schema-registry:8081
+    config.providers: env
+    config.providers.env.class: org.apache.kafka.common.config.provider.EnvVarConfigProvider
+  template:
+    connectContainer:
+      env:
+        - name: DMI_API_KEY
+          valueFrom:
+            secretKeyRef: {name: pc-secrets, key: DMI_API_KEY, optional: true}
+        - name: ALERT_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef: {name: pc-secrets, key: ALERT_WEBHOOK_URL, optional: true}
+  build:
+    output:
+      type: docker
+      image: registry.example.org/port-congestion/connect:latest
+    plugins:
+      - name: avro-converter
+        artifacts:
+          - type: maven
+            repository: https://packages.confluent.io/maven/
+            group: io.confluent
+            artifact: kafka-connect-avro-converter
+            version: 8.4.0
+      - name: filepulse
+        artifacts:
+          - type: zip
+            url: https://github.com/streamthoughts/kafka-connect-file-pulse/releases/download/v2.18.0/streamthoughts-kafka-connect-file-pulse-2.18.0.zip
+      - name: camel-http-source
+        artifacts:
+          - type: tgz
+            url: https://repo1.maven.org/maven2/org/apache/camel/kafkaconnector/camel-http-source-kafka-connector/4.22.0/camel-http-source-kafka-connector-4.22.0-package.tar.gz
+      - name: hdfs-sink
+        artifacts:
+          - type: zip
+            url: https://hub-downloads.confluent.io/api/plugins/confluentinc/kafka-connect-hdfs/versions/10.2.17/confluentinc-kafka-connect-hdfs-10.2.17.zip
+      - name: cassandra-sink
+        artifacts:
+          - type: jar
+            url: https://github.com/datastax/kafka-sink/releases/download/1.7.6/kafka-connect-cassandra-sink-1.7.6.jar
+      - name: redis-sink
+        artifacts:
+          - type: zip
+            url: https://github.com/redis-field-engineering/redis-kafka-connect/releases/download/v1.1.0/redis-redis-kafka-connect-1.1.0.zip
+      - name: http-sink
+        artifacts:
+          - type: zip
+            url: https://github.com/lensesio/stream-reactor/releases/download/12.1.2/kafka-connect-http-12.1.2.zip

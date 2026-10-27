@@ -1,0 +1,15 @@
+# Strimzi cluster operator: runs Kafka (KRaft) and Kafka Connect on Kubernetes.
+#   helm install strimzi oci://quay.io/strimzi-helm/strimzi-kafka-operator \
+#     --version $STRIMZI_VERSION -n port-congestion -f infra/k8s/helm-values/strimzi-operator.yaml
+# The chart version comes from STRIMZI_VERSION in versions.env.
+watchNamespaces:
+  - port-congestion
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi

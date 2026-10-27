@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "WeatherForecast",
+  "namespace": "com.sdu.portcongestion",
+  "doc": "One Open-Meteo forecast response for one port and one product. The HTTP source connector cannot unpack the columnar hourly arrays, so the response is stored as raw JSON and parsed in Spark (spark/common/features.py). Key: port.",
+  "fields": [
+    {"name": "port", "type": "string", "doc": "Port id from config/ports.yaml. Also the Kafka record key."},
+    {"name": "location_id", "type": "string", "doc": "Lookup point label, for example 'dkebj:open_meteo'."},
+    {"name": "product", "type": "string", "doc": "'marine' (waves, swell) or 'wind' (wind, pressure, visibility)."},
+    {"name": "source", "type": "string", "default": "open-meteo"},
+    {"name": "fetched_at", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "When the connector fetched the response."},
+    {"name": "payload", "type": "string", "doc": "Raw JSON response body."}
+  ]
+}

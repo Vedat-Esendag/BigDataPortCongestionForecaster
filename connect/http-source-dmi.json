@@ -1,0 +1,34 @@
+{
+  "name": "dmi-wind-{{PORT_ID}}-{{DMI_STATION_ID}}",
+  "config": {
+    "connector.class": "org.apache.camel.kafkaconnector.httpsource.CamelHttpsourceSourceConnector",
+    "tasks.max": "1",
+    "topics": "weather.observation",
+
+    "camel.kamelet.http-source.url": "https://opendataapi.dmi.dk/v2/metObs/collections/observation/items?stationId={{DMI_STATION_ID}}&parameterId=wind_speed&limit=100&api-key=${env:DMI_API_KEY}",
+    "camel.kamelet.http-source.period": "600000",
+
+    "transforms": "Payload,Port,Station,Source,FetchedAt,Key,KeyField",
+    "transforms.Payload.type": "org.apache.kafka.connect.transforms.HoistField$Value",
+    "transforms.Payload.field": "payload",
+    "transforms.Port.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.Port.static.field": "port",
+    "transforms.Port.static.value": "{{PORT_ID}}",
+    "transforms.Station.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.Station.static.field": "station_id",
+    "transforms.Station.static.value": "{{DMI_STATION_ID}}",
+    "transforms.Source.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.Source.static.field": "source",
+    "transforms.Source.static.value": "dmi",
+    "transforms.FetchedAt.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.FetchedAt.timestamp.field": "fetched_at",
+    "transforms.Key.type": "org.apache.kafka.connect.transforms.ValueToKey",
+    "transforms.Key.fields": "port",
+    "transforms.KeyField.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+    "transforms.KeyField.field": "port",
+
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "io.confluent.connect.avro.AvroConverter",
+    "value.converter.schema.registry.url": "http://schema-registry:8081"
+  }
+}

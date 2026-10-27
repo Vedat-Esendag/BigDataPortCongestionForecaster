@@ -1,0 +1,39 @@
+# Prometheus and Grafana on Kubernetes.
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm install monitoring prometheus-community/kube-prometheus-stack \
+#     --version $KUBE_PROMETHEUS_STACK_VERSION -n port-congestion -f infra/k8s/helm-values/kube-prometheus-stack.yaml
+# STARTING POINT: the value names were not checked against a cluster.
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    # Scrape every pod that carries the annotations prometheus.io/scrape: "true" and
+    # prometheus.io/port (our producer and API set them), at /metrics unless prometheus.io/path says otherwise.
+    additionalScrapeConfigs:
+      - job_name: annotated-pods
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [port-congestion]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+
+grafana:
+  admin:
+    existingSecret: grafana-admin # create it: kubectl create secret generic grafana-admin --from-literal=admin-user=admin --from-literal=admin-password=...
+    userKey: admin-user
+    passwordKey: admin-password
+  sidecar:
+    dashboards:
+      enabled: true # loads ConfigMaps labelled grafana_dashboard=1 (see infra/k8s/README.md)

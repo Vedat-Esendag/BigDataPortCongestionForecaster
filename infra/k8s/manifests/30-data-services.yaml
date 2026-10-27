@@ -1,0 +1,193 @@
+# Cassandra (K8ssandra operator), Redis and HDFS (plain manifests: no maintained chart for HDFS,
+# and the Bitnami charts are avoided on purpose, see docs/decisions.md).
+# STARTING POINT, not validated on a cluster. Single replica, no resource tuning.
+apiVersion: k8ssandra.io/v1alpha1
+kind: K8ssandraCluster
+metadata:
+  name: pc-cassandra
+  namespace: port-congestion
+spec:
+  cassandra:
+    serverVersion: "5.0.9"
+    datacenters:
+      - metadata:
+          name: datacenter1 # connect/cassandra-sink.json uses this as loadBalancing.localDc
+        size: 1
+        storageConfig:
+          cassandraDataVolumeClaimSpec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests: {storage: 20Gi}
+---
+# The connector config says contactPoints "cassandra"; this alias keeps that name working.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cassandra
+  namespace: port-congestion
+spec:
+  type: ExternalName
+  externalName: pc-cassandra-datacenter1-service.port-congestion.svc.cluster.local
+---
+# Applies cassandra/schema.cql. Create the ConfigMap first:
+#   kubectl -n port-congestion create configmap cassandra-schema --from-file=cassandra/schema.cql
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cassandra-init
+  namespace: port-congestion
+spec:
+  backoffLimit: 30
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: cqlsh
+          image: cassandra:5.0.9
+          command: ["cqlsh", "cassandra", "-f", "/cql/schema.cql"]
+          volumeMounts: [{name: schema, mountPath: /cql}]
+      volumes:
+        - name: schema
+          configMap: {name: cassandra-schema}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: port-congestion
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels: {app: redis}
+  template:
+    metadata:
+      labels: {app: redis}
+    spec:
+      containers:
+        - name: redis
+          image: redis:8.8.4
+          # KA: keyspace events, which the API listens to for live push (the Redis sink cannot PUBLISH)
+          args: ["--appendonly", "yes", "--notify-keyspace-events", "KA"]
+          ports: [{containerPort: 6379}]
+          readinessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+          volumeMounts: [{name: data, mountPath: /data}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 2Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: port-congestion
+spec:
+  selector: {app: redis}
+  ports: [{port: 6379, targetPort: 6379}]
+---
+# Hadoop settings, same keys as infra/hadoop/hadoop.env
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hadoop-config
+  namespace: port-congestion
+data:
+  CORE-SITE.XML_fs.default.name: hdfs://namenode:8020
+  CORE-SITE.XML_fs.defaultFS: hdfs://namenode:8020
+  HDFS-SITE.XML_dfs.namenode.rpc-address: namenode:8020
+  HDFS-SITE.XML_dfs.namenode.name.dir: /hadoop/dfs/name
+  HDFS-SITE.XML_dfs.datanode.data.dir: /hadoop/dfs/data
+  HDFS-SITE.XML_dfs.replication: "1"
+  HDFS-SITE.XML_dfs.permissions.enabled: "false"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: namenode
+  namespace: port-congestion
+spec:
+  serviceName: namenode
+  replicas: 1
+  selector:
+    matchLabels: {app: namenode}
+  template:
+    metadata:
+      labels: {app: namenode}
+    spec:
+      securityContext: {runAsUser: 0}
+      containers:
+        - name: namenode
+          image: apache/hadoop:3.5.0
+          command: ["hdfs", "namenode"]
+          envFrom: [{configMapRef: {name: hadoop-config}}]
+          env: [{name: ENSURE_NAMENODE_DIR, value: /hadoop/dfs/name}]
+          ports: [{containerPort: 8020}, {containerPort: 9870}]
+          volumeMounts: [{name: data, mountPath: /hadoop/dfs/name}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 5Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: namenode
+  namespace: port-congestion
+spec:
+  selector: {app: namenode}
+  ports:
+    - {name: rpc, port: 8020, targetPort: 8020}
+    - {name: ui, port: 9870, targetPort: 9870}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: datanode
+  namespace: port-congestion
+spec:
+  serviceName: datanode
+  replicas: 1
+  selector:
+    matchLabels: {app: datanode}
+  template:
+    metadata:
+      labels: {app: datanode}
+    spec:
+      securityContext: {runAsUser: 0}
+      containers:
+        - name: datanode
+          image: apache/hadoop:3.5.0
+          command: ["hdfs", "datanode"]
+          envFrom: [{configMapRef: {name: hadoop-config}}]
+          ports: [{containerPort: 9864}]
+          volumeMounts: [{name: data, mountPath: /hadoop/dfs/data}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 20Gi}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hdfs-init
+  namespace: port-congestion
+spec:
+  backoffLimit: 30
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext: {runAsUser: 0}
+      containers:
+        - name: init
+          image: apache/hadoop:3.5.0
+          envFrom: [{configMapRef: {name: hadoop-config}}]
+          command: ["bash", "-c"]
+          args:
+            - >
+              hdfs dfs -mkdir -p /lake/landing /lake/raw /lake/standardized /lake/curated /lake/quarantine
+              /models/eta /checkpoints && hdfs dfs -chmod -R 777 /lake /models /checkpoints

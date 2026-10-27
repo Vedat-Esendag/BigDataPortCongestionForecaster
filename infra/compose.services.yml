@@ -1,0 +1,438 @@
+# All services, grouped by profile:
+#   core        Kafka (KRaft), Schema Registry, Kafka Connect, Redpanda Console
+#   storage     Cassandra, Redis, HDFS (namenode + datanode)
+#   apps        Spark, AIS producer, ksqlDB, API, dashboard
+#   monitoring  Kafka lag exporter, Prometheus, Grafana
+#
+# Versions come from ../versions.env. Secrets come from ../.env (optional, gitignored) and are
+# passed only to the services that need them. Endpoints are always set explicitly in
+# `environment:` because that wins over anything in .env (which holds host-side values).
+#
+# Dependencies on a service in another profile use `required: false`, so starting one profile
+# alone never fails; the dependent service simply retries until the other one is up.
+
+x-secrets: &secrets
+  env_file:
+    - path: ../.env
+      required: false
+
+x-kafka-dependency: &kafka-dependency
+  kafka:
+    condition: service_healthy
+    required: false
+  schema-registry:
+    condition: service_healthy
+    required: false
+
+services:
+  # ---------------------------------------------------------------- core
+  kafka:
+    image: confluentinc/cp-kafka:${CP_VERSION}
+    profiles: [core]
+    hostname: kafka
+    ports:
+      - "9092:9092" # host listener, for the producer and tools running on your machine
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk # any 22-character base64 id, fixed so restarts reuse the data
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false" # topics come from scripts/create_topics.sh
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:${CP_VERSION}
+    profiles: [core]
+    hostname: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/subjects >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  connect:
+    build:
+      context: ../connect
+      args:
+        CP_VERSION: ${CP_VERSION}
+        FILEPULSE_VERSION: ${FILEPULSE_VERSION}
+        CAMEL_HTTP_SOURCE_VERSION: ${CAMEL_HTTP_SOURCE_VERSION}
+        HDFS_SINK_VERSION: ${HDFS_SINK_VERSION}
+        CASSANDRA_SINK_VERSION: ${CASSANDRA_SINK_VERSION}
+        REDIS_SINK_VERSION: ${REDIS_SINK_VERSION}
+        LENSES_HTTP_SINK_VERSION: ${LENSES_HTTP_SINK_VERSION}
+    image: portcongestion/connect:${CP_VERSION}
+    profiles: [core]
+    hostname: connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    <<: *secrets # DMI_API_KEY and ALERT_WEBHOOK_URL, read by connectors as ${env:NAME}
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:29092
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: portcongestion-connect
+      CONNECT_CONFIG_STORAGE_TOPIC: _connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components,/usr/share/connect-plugins
+      # lets connector configs say ${env:DMI_API_KEY} so secrets never sit in the config topic
+      CONNECT_CONFIG_PROVIDERS: env
+      CONNECT_CONFIG_PROVIDERS_ENV_CLASS: org.apache.kafka.common.config.provider.EnvVarConfigProvider
+    volumes:
+      - ../data/dma:/data/dma # DMA CSV files for the FilePulse source (scripts/download_dma.py)
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/connectors >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  redpanda-console:
+    image: redpandadata/console:${REDPANDA_CONSOLE_VERSION}
+    profiles: [core]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8085:8080"
+    environment:
+      CONFIG_FILEPATH: /etc/console/config.yaml
+    volumes:
+      - ./console/config.yaml:/etc/console/config.yaml:ro
+    # no healthcheck: the image has no shell or curl to run one with
+
+  # ------------------------------------------------------------- storage
+  cassandra:
+    image: cassandra:${CASSANDRA_VERSION}
+    profiles: [storage]
+    hostname: cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: portcongestion
+      CASSANDRA_DC: datacenter1
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  cassandra-init: # one-shot: creates the keyspace and tables (cassandra/schema.cql)
+    image: cassandra:${CASSANDRA_VERSION}
+    profiles: [storage]
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ../cassandra:/cql:ro
+    entrypoint: ["cqlsh", "cassandra", "-f", "/cql/schema.cql"]
+    restart: "no"
+
+  redis:
+    image: redis:${REDIS_VERSION}
+    profiles: [storage]
+    hostname: redis
+    # KA = keyspace events for all commands. The Redis sink cannot PUBLISH, so the API listens to
+    # these events to know when a ship or port key changed. Redis 8 bundles the JSON type.
+    command: ["redis-server", "--appendonly", "yes", "--notify-keyspace-events", "KA"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  namenode:
+    image: apache/hadoop:${HADOOP_VERSION}
+    platform: linux/amd64 # the official image has no arm64 build; ARM machines (Apple Silicon, Linux ARM) run it emulated
+    profiles: [storage]
+    hostname: namenode
+    user: root # named volumes are root-owned; fine for a single-machine demo
+    command: ["hdfs", "namenode"]
+    ports:
+      - "9870:9870" # web UI
+      - "8020:8020" # RPC
+    env_file:
+      - ./hadoop/hadoop.env
+    environment:
+      ENSURE_NAMENODE_DIR: /hadoop/dfs/name # formats the namenode on first start
+    volumes:
+      - namenode-data:/hadoop/dfs/name
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -safemode get | grep -q OFF"]
+      interval: 15s
+      timeout: 15s
+      retries: 20
+      start_period: 40s
+
+  datanode:
+    image: apache/hadoop:${HADOOP_VERSION}
+    platform: linux/amd64
+    profiles: [storage]
+    hostname: datanode
+    user: root
+    depends_on:
+      namenode:
+        condition: service_healthy
+    command: ["hdfs", "datanode"]
+    env_file:
+      - ./hadoop/hadoop.env
+    volumes:
+      - datanode-data:/hadoop/dfs/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9864'"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  hdfs-init: # one-shot: creates the data lake zones, the model folder and the checkpoint folder
+    image: apache/hadoop:${HADOOP_VERSION}
+    platform: linux/amd64
+    profiles: [storage]
+    user: root
+    depends_on:
+      namenode:
+        condition: service_healthy
+    env_file:
+      - ./hadoop/hadoop.env
+    command:
+      - bash
+      - -c
+      - >
+        hdfs dfs -mkdir -p /lake/landing /lake/raw /lake/standardized /lake/curated /lake/quarantine
+        /models/eta /checkpoints &&
+        hdfs dfs -chmod -R 777 /lake /models /checkpoints
+    restart: "no"
+
+  # ---------------------------------------------------------------- apps
+  spark: # idle container to spark-submit from:  make spark-live
+    build:
+      context: ..
+      dockerfile: spark/Dockerfile
+      args:
+        SPARK_IMAGE_TAG: ${SPARK_IMAGE_TAG}
+    image: portcongestion/spark:${SPARK_VERSION}
+    profiles: [apps]
+    depends_on:
+      <<: *kafka-dependency
+    command: ["sleep", "infinity"]
+    ports:
+      - "4040:4040" # Spark UI and /metrics/prometheus of the running job
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      HDFS_URI: hdfs://namenode:8020
+      CHECKPOINT_DIR: hdfs://namenode:8020/checkpoints/live_job
+      CONFIG_DIR: /opt/app/config
+      AVRO_SCHEMA_DIR: /opt/app/schemas/avro
+    volumes:
+      - ..:/opt/app # edit code on the host, resubmit without rebuilding the image
+
+  ais-producer:
+    build:
+      context: ..
+      dockerfile: services/ais-producer/Dockerfile
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION}
+        UV_VERSION: ${UV_VERSION}
+    image: portcongestion/ais-producer:latest
+    profiles: [apps]
+    depends_on:
+      <<: *kafka-dependency
+    restart: unless-stopped
+    ports:
+      - "9100:9100" # Prometheus metrics
+    <<: *secrets # AISSTREAM_API_KEY
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      PORTS_CONFIG: /app/config/ports.yaml
+      AVRO_SCHEMA_DIR: /app/schemas/avro
+      PRODUCER_METRICS_PORT: "9100"
+    volumes:
+      - ../config:/app/config:ro # change a bounding box without rebuilding the image
+
+  ksqldb:
+    image: confluentinc/cp-ksqldb-server:${CP_VERSION}
+    profiles: [apps]
+    hostname: ksqldb
+    depends_on:
+      <<: *kafka-dependency
+    restart: on-failure
+    ports:
+      - "8088:8088"
+    environment:
+      KSQL_BOOTSTRAP_SERVERS: kafka:29092
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KSQL_KSQL_SERVICE_ID: portcongestion_
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8088/info >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  ksql-init: # one-shot: runs the statements in ksql/, retrying until topics and schemas exist
+    image: confluentinc/cp-ksqldb-cli:${CP_VERSION}
+    profiles: [apps]
+    depends_on:
+      ksqldb:
+        condition: service_healthy
+    volumes:
+      - ../ksql:/ksql:ro
+    entrypoint:
+      - sh
+      - -c
+      - >
+        for f in history_split alerts; do
+        until ksql http://ksqldb:8088 --file /ksql/$$f.sql; do
+        echo "waiting for topics and schemas, retrying $$f.sql"; sleep 10; done; done
+    restart: "no"
+
+  api:
+    build:
+      context: ..
+      dockerfile: services/api/Dockerfile
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION}
+        UV_VERSION: ${UV_VERSION}
+    image: portcongestion/api:latest
+    profiles: [apps]
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_PORT: "9042"
+      CASSANDRA_KEYSPACE: portcongestion
+      PORTS_CONFIG: /app/config/ports.yaml
+      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+    volumes:
+      - ../config:/app/config:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  dashboard:
+    build:
+      context: ../services/dashboard
+      args:
+        NODE_VERSION: ${NODE_VERSION}
+    image: portcongestion/dashboard:latest
+    profiles: [apps]
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+  # ---------------------------------------------------------- monitoring
+  kafka-exporter: # consumer group lag = our main data-freshness metric
+    image: danielqsj/kafka-exporter:${KAFKA_EXPORTER_VERSION}
+    profiles: [monitoring]
+    depends_on:
+      kafka:
+        condition: service_healthy
+        required: false
+    restart: unless-stopped
+    command: ["--kafka.server=kafka:29092"]
+    ports:
+      - "9308:9308"
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION}
+    profiles: [monitoring]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}
+    profiles: [monitoring]
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  kafka-data:
+  cassandra-data:
+  redis-data:
+  namenode-data:
+  datanode-data:
+  prometheus-data:
+  grafana-data:

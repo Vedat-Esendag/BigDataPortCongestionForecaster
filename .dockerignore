@@ -1,0 +1,17 @@
+# Several images (producer, api, spark) are built with the repo root as context.
+# Keep the context small: no virtualenvs, dependencies, build output or downloaded data.
+.git
+.github
+**/.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+.ruff_cache
+services/dashboard/dist
+spark/dist
+data
+.env
+.env.*
+!.env.example
+docs
+notebooks

@@ -1,0 +1,38 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+
+# Spark / local data
+spark/dist/
+spark-warehouse/
+metastore_db/
+derby.log
+checkpoints/
+data/
+
+# Node
+node_modules/
+services/dashboard/dist/
+*.tsbuildinfo
+
+# Claude Code and related tooling (local settings, worktrees, memory, MCP config)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json
+.superpowers/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

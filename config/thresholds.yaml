@@ -1,0 +1,31 @@
+# Tunable thresholds. All values are starting points to be tuned once real data flows.
+# ksql/alerts.sql repeats the alert numbers as literals (ksqlDB cannot read this file).
+# Keep them in sync until scripts render the ksql file from here (TODO(F13)).
+
+late:
+  # A ship is late when its predicted ETA is more than this many minutes after its broadcast ETA.
+  minutes: 30
+
+approach_zone:
+  # Fallback radius around the port center, used when a port has no approach_zone polygon,
+  # and as the cutoff for distance-based features.
+  radius_nm: 25
+
+prediction_window:
+  # Central coverage of the predicted ETA interval (70% -> 15th to 85th percentile of residuals).
+  coverage: 0.70
+
+outlook:
+  slot_minutes: 60
+  horizons_hours: [24, 48]
+  # Arrivals in one slot at or above this count flag the slot as bunched.
+  bunching_min_arrivals: 4
+
+alerts:
+  # An alert fires when any metric reaches its level. Critical wins over warning.
+  warning:
+    late_count: 3
+    expected_waiting_ships: 3
+  critical:
+    late_count: 6
+    expected_waiting_ships: 6

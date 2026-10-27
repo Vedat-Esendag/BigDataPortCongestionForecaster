@@ -1,0 +1,27 @@
+{
+  "name": "hdfs-parquet-sink",
+  "config": {
+    "connector.class": "io.confluent.connect.hdfs.HdfsSinkConnector",
+    "tasks.max": "3",
+    "topics": "ais.position,ais.static,ais.history.position,ais.history.static,weather.forecast,weather.observation,ship.prediction,port.outlook,alerts,analytics.weather_delay,eval.metrics",
+
+    "hdfs.url": "hdfs://namenode:8020",
+    "topics.dir": "/lake/raw",
+    "logs.dir": "/lake/_wal",
+
+    "format.class": "io.confluent.connect.hdfs.parquet.ParquetFormat",
+    "flush.size": "5000",
+    "rotate.schedule.interval.ms": "600000",
+
+    "partitioner.class": "io.confluent.connect.storage.partitioner.TimeBasedPartitioner",
+    "path.format": "'dt'=YYYY-MM-dd/'hr'=HH",
+    "partition.duration.ms": "3600000",
+    "locale": "en-US",
+    "timezone": "UTC",
+    "timestamp.extractor": "Record",
+
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "io.confluent.connect.avro.AvroConverter",
+    "value.converter.schema.registry.url": "http://schema-registry:8081"
+  }
+}
