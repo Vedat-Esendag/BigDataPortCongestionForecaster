@@ -18,7 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      # setup-uv has no floating @v10 major tag; pin a real release tag
+      - uses: astral-sh/setup-uv@v10.3.3
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
