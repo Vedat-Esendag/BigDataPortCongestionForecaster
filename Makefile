@@ -18,7 +18,7 @@ JAVA_MAJOR := $(call java_major,$(JAVA_HOME))
 
 .PHONY: help up up-core down down-volumes topics schemas connectors test lint fmt \
         compose-config run-producer spark-package spark-live dashboard-build download-dma clean \
-        k8s-diff k8s-apply
+        k8s-diff k8s-apply k8s-check k8s-up k8s-secrets
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -42,11 +42,19 @@ down-volumes: ## Stop everything and delete all volumes (wipes Kafka, HDFS, Cass
 compose-config: ## Validate the compose file with every profile enabled
 	$(COMPOSE) --profile '*' config --quiet && echo "compose config OK"
 
-k8s-diff: ## Show what k8s-apply would change on the course cluster (namespace bd-gr-05)
+k8s-diff: ## Show what k8s-apply would change on the school cluster (namespace bd-gr-05)
 	infra/k8s/deploy.sh diff
 
-k8s-apply: ## Deploy infra/k8s to the course cluster (namespace bd-gr-05 only)
+k8s-apply: ## Deploy infra/k8s/overlays/school to the school cluster (namespace bd-gr-05 only)
 	infra/k8s/deploy.sh apply
+
+k8s-check: ## Smoke test: check every service on the school cluster answers (read-only)
+	infra/k8s/check.sh
+
+k8s-up: k8s-apply k8s-check ## Deploy to the school cluster and wait until every service answers
+
+k8s-secrets: ## Create or update the Kubernetes Secrets from the keys in .env
+	scripts/create_k8s_secrets.sh
 
 topics: ## Create the Kafka topics
 	scripts/create_topics.sh

@@ -1,0 +1,24 @@
+# The school cluster: our namespace and everything specific to that cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bd-gr-05
+
+labels:
+  - pairs:
+      env: school
+    includeTemplates: true
+
+resources:
+  - ../../base
+
+# Image registry for our own images (kafka-connect, ais-producer, spark-jobs, web): not chosen
+# yet. When it is, map each image here, for example:
+#
+# images:
+#   - name: pf/ais-producer
+#     newName: <registry>/pf/ais-producer
+#     newTag: <git-sha>
+#
+# Storage class: nothing uses persistent storage yet. When it does, patch the volume claims here
+# to storageClassName: hostpath-custom.

@@ -13,7 +13,7 @@ action="${1:-diff}"
 
 source infra/k8s/cluster/env.sh >/dev/null
 
-rendered="$(kubectl kustomize infra/k8s)"
+rendered="$(kubectl kustomize infra/k8s/overlays/school)"
 
 # kind and namespace of every object, one per line
 objects="$(kubectl create --dry-run=client -o jsonpath='{.kind}{"\t"}{.metadata.namespace}{"\n"}' -f - <<<"$rendered")"
@@ -26,6 +26,12 @@ fi
 
 case "$action" in
   diff)
+    # The server checks a RoleBinding against its Role, which a diff never creates. Until the
+    # first apply has created the spark Role, leave its RoleBinding out of the diff.
+    if ! kubectl get role spark -n "$NAMESPACE" >/dev/null 2>&1; then
+      echo "(spark RoleBinding left out of the diff: it is created right after its Role on apply)" >&2
+      rendered="$(awk 'BEGIN { RS = "\n---\n"; ORS = "\n---\n" } !/(^|\n)kind: RoleBinding\n/' <<<"$rendered")"
+    fi
     kubectl diff -n "$NAMESPACE" -f - <<<"$rendered" || [[ $? -eq 1 ]] # 1 means "there are differences"
     ;;
   apply)

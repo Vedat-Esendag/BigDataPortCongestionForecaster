@@ -1,0 +1,15 @@
+# Two workloads, so app.kubernetes.io/name and component are set in each file.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      layer: storage
+    includeTemplates: true
+
+resources:
+  - configmap.yaml
+  - namenode-service.yaml
+  - namenode-statefulset.yaml
+  - datanode-service.yaml
+  - datanode-statefulset.yaml

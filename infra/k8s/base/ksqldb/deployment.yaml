@@ -1,0 +1,73 @@
+# ksqlDB server, empty: no streams, tables or queries. Image tag repeats CP_VERSION.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ksqldb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ksqldb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ksqldb
+    spec:
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 # appuser in the Confluent images
+      initContainers:
+        - name: wait-for-kafka
+          image: confluentinc/cp-ksqldb-server:8.4.0
+          command: ["bash", "-c", "until (echo > /dev/tcp/kafka/9092) 2>/dev/null; do echo waiting for kafka; sleep 3; done"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: ksqldb
+          image: confluentinc/cp-ksqldb-server:8.4.0
+          ports:
+            - containerPort: 8088
+              name: http
+          env:
+            - name: KSQL_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: KSQL_LISTENERS
+              value: http://0.0.0.0:8088
+            - name: KSQL_KSQL_SCHEMA_REGISTRY_URL
+              value: http://schema-registry:8081
+            - name: KSQL_HEAP_OPTS
+              value: -Xms512m -Xmx1g
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /info
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /info
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 300m
+              memory: 1Gi
+            limits:
+              cpu: "1" # shared node: cap us so we cannot starve other groups
+              memory: 2Gi

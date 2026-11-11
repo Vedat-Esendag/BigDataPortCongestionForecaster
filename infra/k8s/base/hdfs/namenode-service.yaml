@@ -1,0 +1,18 @@
+# Headless, so hdfs-namenode resolves straight to the pod (a stable hostname for HDFS).
+apiVersion: v1
+kind: Service
+metadata:
+  name: hdfs-namenode
+  labels:
+    app.kubernetes.io/name: hdfs-namenode
+    app.kubernetes.io/component: namenode
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true # the namenode must resolve its own name while it starts
+  selector:
+    app.kubernetes.io/name: hdfs-namenode
+  ports:
+    - name: rpc
+      port: 8020
+    - name: http
+      port: 9870 # web UI

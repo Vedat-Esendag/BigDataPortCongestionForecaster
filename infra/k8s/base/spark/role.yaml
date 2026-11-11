@@ -1,0 +1,12 @@
+# Only what the Spark driver does: start and clean up executor pods and their services,
+# config maps and volume claims, in our namespace. No deletecollection: our own token doesn't
+# have it, so we can't grant it. Executor pods are owned by the driver pod, so Kubernetes still
+# removes them when a job ends.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, configmaps, persistentvolumeclaims]
+    verbs: [get, list, watch, create, update, patch, delete]

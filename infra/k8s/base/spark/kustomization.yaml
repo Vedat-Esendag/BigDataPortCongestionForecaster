@@ -1,0 +1,15 @@
+# What Spark on Kubernetes needs before any job runs: the driver uses this service account to
+# create its executor pods. Namespace-scoped only.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: spark
+      app.kubernetes.io/component: rbac
+      layer: batch
+
+resources:
+  - serviceaccount.yaml
+  - role.yaml
+  - rolebinding.yaml

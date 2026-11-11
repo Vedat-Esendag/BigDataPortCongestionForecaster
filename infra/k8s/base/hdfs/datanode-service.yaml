@@ -1,0 +1,17 @@
+# Headless, gives the datanode pod a stable hostname.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hdfs-datanode
+  labels:
+    app.kubernetes.io/name: hdfs-datanode
+    app.kubernetes.io/component: datanode
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: hdfs-datanode
+  ports:
+    - name: data
+      port: 9866
+    - name: http
+      port: 9864

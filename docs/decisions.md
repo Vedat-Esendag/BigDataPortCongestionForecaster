@@ -67,9 +67,11 @@ the pyspark pin and `versions.env` drift apart.
    service so host-side values in `.env` cannot leak into containers.
 10. **Kubernetes: plain manifests, no operators and no Bitnami charts.** The course cluster is
     shared by every group, so we install nothing cluster-wide (no CRDs, no operators) and stay in
-    our namespace `bd-gr-05`. Services keep their compose names (`kafka:29092`, `schema-registry`,
-    `redis`, ...) so connector and app configs work unchanged. For now only the base services
-    run there, with no topics, schemas or persistent storage. See `infra/k8s/README.md`.
+    our namespace `bd-gr-05`, as a Kustomize base plus a school overlay. Services are reached by
+    short name inside the namespace (`kafka:9092`, `schema-registry:8081`, `hdfs-namenode:8020`).
+    These differ from compose (`kafka:29092`, `namenode`), so app configs need per-environment
+    values. For now only the base services run there, with no topics, schemas or persistent
+    storage. See `infra/k8s/README.md`.
 11. **FilePulse instead of spooldir** for the DMA CSV source, because spooldir has had no release
     since 2024-12 (see `docs/connectors.md`).
 12. **`day` columns are text** (`yyyy-MM-dd`, UTC) so no component has to convert a date type.
