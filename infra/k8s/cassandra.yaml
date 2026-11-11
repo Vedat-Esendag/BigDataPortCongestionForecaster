@@ -1,0 +1,60 @@
+# Cassandra, one node, empty: no keyspaces or tables and no persistent storage (data is lost when
+# the pod restarts). Image tag repeats CASSANDRA_VERSION from versions.env.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cassandra
+spec:
+  selector:
+    app: cassandra
+  ports:
+    - name: cql
+      port: 9042
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cassandra
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cassandra
+  template:
+    metadata:
+      labels:
+        app: cassandra
+    spec:
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      enableServiceLinks: false
+      containers:
+        - name: cassandra
+          image: cassandra:5.0.9
+          env:
+            # Without these Cassandra sizes its heap from the node's memory (about 1 TB here).
+            - name: MAX_HEAP_SIZE
+              value: 1G
+            - name: HEAP_NEWSIZE
+              value: 256M
+          ports:
+            - containerPort: 9042
+              name: cql
+          readinessProbe:
+            tcpSocket:
+              port: cql
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: cql
+            initialDelaySeconds: 120 # Cassandra takes a while to start
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: "2" # shared node: cap us so we cannot starve other groups
+              memory: 3Gi

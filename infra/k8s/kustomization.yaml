@@ -14,6 +14,7 @@ labels:
 
 resources:
   - kafka.yaml
-  - kafka-topics.yaml
   - schema-registry.yaml
   - redis.yaml
+  - hdfs.yaml
+  - cassandra.yaml

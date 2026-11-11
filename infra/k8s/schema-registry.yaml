@@ -1,4 +1,4 @@
-# Confluent Schema Registry, the same setup as the compose `schema-registry` service.
+# Confluent Schema Registry, empty: no schemas are registered. Image tag repeats CP_VERSION.
 apiVersion: v1
 kind: Service
 metadata:
@@ -39,6 +39,7 @@ spec:
                   fieldPath: status.podIP
             - name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS
               value: kafka:29092
+            # its own storage topic defaults to 3 copies, which a single broker cannot hold
             - name: SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR
               value: "1"
             - name: SCHEMA_REGISTRY_LISTENERS
@@ -62,4 +63,5 @@ spec:
               cpu: 200m
               memory: 512Mi
             limits:
+              cpu: 500m # shared node: cap us so we cannot starve other groups
               memory: 1Gi

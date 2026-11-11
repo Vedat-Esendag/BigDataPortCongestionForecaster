@@ -1,4 +1,5 @@
-# Redis, the same setup as the compose `redis` service. Image tag repeats REDIS_VERSION.
+# Redis with its default settings and no persistent storage (data is lost when the pod
+# restarts). Image tag repeats REDIS_VERSION from versions.env.
 apiVersion: v1
 kind: Service
 metadata:
@@ -11,11 +12,10 @@ spec:
       port: 6379
 ---
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: redis
 spec:
-  serviceName: redis
   replicas: 1
   selector:
     matchLabels:
@@ -30,9 +30,6 @@ spec:
       containers:
         - name: redis
           image: redis:8.8.4
-          # KA = keyspace events for all commands. The Redis sink cannot PUBLISH, so the API
-          # listens to these events to know when a ship or port key changed.
-          command: ["redis-server", "--appendonly", "yes", "--notify-keyspace-events", "KA"]
           ports:
             - containerPort: 6379
               name: redis
@@ -50,15 +47,5 @@ spec:
               cpu: 100m
               memory: 256Mi
             limits:
+              cpu: 500m # shared node: cap us so we cannot starve other groups
               memory: 1Gi
-          volumeMounts:
-            - name: data
-              mountPath: /data
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: [ReadWriteOnce]
-        resources:
-          requests:
-            storage: 2Gi

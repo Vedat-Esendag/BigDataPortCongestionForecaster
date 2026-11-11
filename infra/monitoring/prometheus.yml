@@ -1,5 +1,4 @@
 # Prometheus scrape config for the docker compose monitoring profile.
-# On Kubernetes the cluster's shared Prometheus scrapes them through ServiceMonitors (see infra/k8s/README.md).
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
