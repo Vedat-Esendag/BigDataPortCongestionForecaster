@@ -1,0 +1,19 @@
+# Every component of the stack, without a namespace. Deploy through overlays/school, never
+# this folder directly.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: port-forecaster
+    includeTemplates: true
+
+resources:
+  - pf-config
+  - kafka
+  - schema-registry
+  - ksqldb
+  - redis
+  - hdfs
+  - cassandra
+  - spark

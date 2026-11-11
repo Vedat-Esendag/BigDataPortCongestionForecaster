@@ -1,0 +1,22 @@
+# Hadoop settings for both HDFS workloads. The image's entrypoint turns FILE.XML_key=value
+# variables into Hadoop config files.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hdfs-config
+  labels:
+    app.kubernetes.io/name: hdfs
+    app.kubernetes.io/component: config
+data:
+  CORE-SITE.XML_fs.defaultFS: hdfs://hdfs-namenode:8020
+  HDFS-SITE.XML_dfs.namenode.rpc-address: hdfs-namenode:8020
+  # Listen on every interface, not only on the address hdfs-namenode resolves to.
+  HDFS-SITE.XML_dfs.namenode.rpc-bind-host: 0.0.0.0
+  HDFS-SITE.XML_dfs.namenode.http-bind-host: 0.0.0.0
+  # Pods have no reverse DNS entry, so the namenode would reject the datanode without this.
+  HDFS-SITE.XML_dfs.namenode.datanode.registration.ip-hostname-check: "false"
+  # Under /tmp because the image runs as the `hadoop` user, who cannot create /hadoop. Moves to
+  # a persistent volume later.
+  HDFS-SITE.XML_dfs.namenode.name.dir: /tmp/hadoop/dfs/name
+  HDFS-SITE.XML_dfs.datanode.data.dir: /tmp/hadoop/dfs/data
+  HDFS-SITE.XML_dfs.replication: "1"

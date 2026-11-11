@@ -140,7 +140,7 @@ spark/
 connect/           one JSON per Kafka Connect connector, and the Connect image
 ksql/              alerts, and the split of raw DMA rows into the history topics
 cassandra/         schema.cql
-infra/             docker-compose, Kubernetes (Helm values and manifests), Prometheus and Grafana
+infra/             docker-compose, Kubernetes (k8s/, course cluster), Prometheus and Grafana
 scripts/           download_dma.py, create_topics.sh, register_schemas.py, deploy_connectors.sh
 docs/              architecture, connectors, decisions
 notebooks/         exploration

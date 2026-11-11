@@ -1,0 +1,7 @@
+# Shared settings for every component (port, bounding box, thresholds, topic names). Empty
+# until those are agreed; components can already reference it by name.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pf-config
+data: {}

@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+kubeconfig.yaml
+projectnotes.md
 
 # Python
 __pycache__/

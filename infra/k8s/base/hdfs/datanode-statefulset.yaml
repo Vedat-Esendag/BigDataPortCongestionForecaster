@@ -1,0 +1,74 @@
+# HDFS datanode, no persistent volume yet. Image tag repeats HADOOP_VERSION in versions.env.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hdfs-datanode
+  labels:
+    app.kubernetes.io/name: hdfs-datanode
+    app.kubernetes.io/component: datanode
+spec:
+  serviceName: hdfs-datanode
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hdfs-datanode
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hdfs-datanode
+        app.kubernetes.io/component: datanode
+    spec:
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001 # `hadoop` in the image
+        runAsGroup: 100
+      initContainers:
+        - name: wait-for-namenode
+          image: apache/hadoop:3.5.0
+          command: ["bash", "-c", "until (echo > /dev/tcp/hdfs-namenode/8020) 2>/dev/null; do echo waiting for namenode; sleep 3; done"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: datanode
+          image: apache/hadoop:3.5.0
+          args: ["hdfs", "datanode"] # args, not command (see namenode-statefulset.yaml)
+          envFrom:
+            - configMapRef:
+                name: hdfs-config
+          ports:
+            - containerPort: 9866
+              name: data
+            - containerPort: 9864
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            tcpSocket:
+              port: data
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: data
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1" # shared node: cap us so we cannot starve other groups
+              memory: 1Gi

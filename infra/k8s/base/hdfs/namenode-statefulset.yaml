@@ -1,0 +1,65 @@
+# HDFS namenode, empty: no folders are created, and no persistent volume yet (it formats itself
+# again on every start). Image tag repeats HADOOP_VERSION in versions.env.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hdfs-namenode
+  labels:
+    app.kubernetes.io/name: hdfs-namenode
+    app.kubernetes.io/component: namenode
+spec:
+  serviceName: hdfs-namenode
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hdfs-namenode
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hdfs-namenode
+        app.kubernetes.io/component: namenode
+    spec:
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001 # `hadoop` in the image
+        runAsGroup: 100
+      containers:
+        - name: namenode
+          image: apache/hadoop:3.5.0
+          # args, not command: command would replace the image's entrypoint, which writes the
+          # config files and formats the namenode.
+          args: ["hdfs", "namenode"]
+          envFrom:
+            - configMapRef:
+                name: hdfs-config
+          env:
+            - name: ENSURE_NAMENODE_DIR # formats the namenode when the folder is missing
+              value: /tmp/hadoop/dfs/name
+          ports:
+            - containerPort: 8020
+              name: rpc
+            - containerPort: 9870
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1" # shared node: cap us so we cannot starve other groups
+              memory: 1Gi

@@ -1,83 +1,99 @@
-# Kubernetes deployment (starting point)
+# Kubernetes (school cluster)
 
-For the course cluster. A reasonable first draft, **not validated on a real cluster and not
-production-grade**: single replicas for the data services, placeholder image names, no
-network policies, no ingress.
+The base services of the project on the university's shared Kubernetes cluster, in our
+namespace `bd-gr-05`. To get access first, follow [cluster/cluster_setup.md](cluster/cluster_setup.md).
 
-| What | How |
-|------|-----|
-| Kafka (KRaft) and Kafka Connect | Strimzi operator ([helm-values/strimzi-operator.yaml](helm-values/strimzi-operator.yaml)), custom resources in `manifests/10-kafka.yaml` and `12-kafka-connect.yaml` |
-| Cassandra | K8ssandra operator ([helm-values/k8ssandra-operator.yaml](helm-values/k8ssandra-operator.yaml)), `manifests/30-data-services.yaml` |
-| Prometheus and Grafana | kube-prometheus-stack ([helm-values/kube-prometheus-stack.yaml](helm-values/kube-prometheus-stack.yaml)) |
-| Schema Registry, ksqlDB, Redis, HDFS | plain manifests (no Strimzi equivalent; no Bitnami charts, see docs/decisions.md) |
-| Our services | plain manifests in `manifests/40-apps.yaml` |
-| Training, analytics, evaluation | CronJobs in `manifests/cronjobs/spark-jobs.yaml` (suspended until the jobs are implemented) |
+This is a starting point: every service starts and answers, but nothing is set up for the
+project yet. There are no topics, schemas, HDFS folders, keyspaces or tables, and no persistent
+storage, so every service loses its data when its pod restarts.
 
-Chart and operator versions are in `versions.env` (`STRIMZI_VERSION`, `K8SSANDRA_OPERATOR_VERSION`,
-`KUBE_PROMETHEUS_STACK_VERSION`). Image tags inside the manifests repeat the versions of `versions.env`;
-change both together.
+## Start, check, update
 
-## Order
+From the repo root, on the university network or VPN:
 
 ```bash
-source versions.env
-kubectl apply -f infra/k8s/manifests/00-namespace.yaml
-
-# operators
-helm install strimzi oci://quay.io/strimzi-helm/strimzi-kafka-operator --version $STRIMZI_VERSION \
-  -n port-congestion -f infra/k8s/helm-values/strimzi-operator.yaml
-helm repo add k8ssandra https://helm.k8ssandra.io/stable
-helm install k8ssandra-operator k8ssandra/k8ssandra-operator --version $K8SSANDRA_OPERATOR_VERSION \
-  -n port-congestion -f infra/k8s/helm-values/k8ssandra-operator.yaml
-
-# config and secrets (nothing secret is stored in the repo)
-kubectl -n port-congestion create configmap pc-config --from-file=config/
-kubectl -n port-congestion create configmap ksql-statements --from-file=ksql/
-kubectl -n port-congestion create configmap cassandra-schema --from-file=cassandra/schema.cql
-kubectl -n port-congestion create secret generic pc-secrets \
-  --from-literal=AISSTREAM_API_KEY=... --from-literal=DMI_API_KEY=... --from-literal=ALERT_WEBHOOK_URL=...
-
-# data services, then Kafka Connect, Schema Registry, ksqlDB
-kubectl apply -f infra/k8s/manifests/10-kafka.yaml -f infra/k8s/manifests/30-data-services.yaml
-kubectl apply -f infra/k8s/manifests/20-schema-registry-ksqldb.yaml -f infra/k8s/manifests/12-kafka-connect.yaml
-
-# schemas and connectors (port-forward Schema Registry and Connect first)
-python3 scripts/register_schemas.py --url http://localhost:8081
-CONNECT_URL=http://localhost:8083 scripts/deploy_connectors.sh
-
-# our services and the (suspended) jobs
-kubectl apply -f infra/k8s/manifests/40-apps.yaml -f infra/k8s/manifests/cronjobs/spark-jobs.yaml
-
-# monitoring
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm install monitoring prometheus-community/kube-prometheus-stack --version $KUBE_PROMETHEUS_STACK_VERSION \
-  -n port-congestion -f infra/k8s/helm-values/kube-prometheus-stack.yaml
-kubectl -n port-congestion create configmap feed-lag-dashboard \
-  --from-file=infra/monitoring/grafana/dashboards/feed-lag-and-rate.json
-kubectl -n port-congestion label configmap feed-lag-dashboard grafana_dashboard=1
+make k8s-diff     # what would change on the cluster
+make k8s-up       # deploy, then wait until every service answers
 ```
 
-## Images
+`make k8s-up` is `make k8s-apply` followed by `make k8s-check`. You can run the check alone at
+any time; it only reads. It ends with `All services are up.` or shows which service failed.
 
-Build with the repo root as context, push to a registry the cluster can pull from, and replace
-`registry.example.org/port-congestion` in the manifests:
+To update while things are running, don't stop anything: change the files, then
+`make k8s-diff` and `make k8s-apply` again.
+
+- New objects are created, unchanged ones are left alone.
+- A changed service gets a fresh pod, which starts empty again (no persistent storage yet).
+- A file you remove from the setup is **not** removed from the cluster. Delete its objects first
+  (`kubectl delete -k` on its folder, or `kubectl delete <kind> <name>`), then take it out.
+
+Everything goes through [deploy.sh](deploy.sh), which refuses to run if anything is cluster-wide
+or outside `bd-gr-05`.
+
+## Layout
+
+```
+infra/k8s/
+  base/                 every component, no namespace
+    <component>/        kustomization.yaml, service.yaml, statefulset.yaml or deployment.yaml
+  overlays/school/      namespace bd-gr-05 and the school-specific settings
+  cluster/              access to the cluster (kubeconfig, env.sh, setup guide)
+  deploy.sh             diff / apply, with the namespace guard
+  check.sh              smoke test
+```
+
+To add a component: create `base/<name>/` like the others, add it to `base/kustomization.yaml`,
+then run `kubectl kustomize infra/k8s/overlays/school` to see the result.
+
+## What runs
+
+| Component | Kind | Address in the namespace |
+|---|---|---|
+| `kafka` | StatefulSet, 1 broker (KRaft) | `kafka:9092` |
+| `schema-registry` | Deployment | `http://schema-registry:8081` |
+| `ksqldb` | Deployment | `http://ksqldb:8088` |
+| `redis` | Deployment | `redis:6379` |
+| `hdfs-namenode`, `hdfs-datanode` | StatefulSets, headless Services | `hdfs://hdfs-namenode:8020`, web UI on 9870 |
+| `cassandra` | StatefulSet, 1 node | `cassandra:9042` |
+| `pf-config` | ConfigMap, empty | shared settings, filled in later |
+| `spark` | ServiceAccount, Role, RoleBinding | lets Spark drivers start executor pods |
+
+Schema Registry and ksqlDB wait for Kafka before starting, and the datanode waits for the
+namenode, so a cold start doesn't crash-loop. Every container runs as a non-root user, has CPU
+and memory limits, and has health checks.
+
+Only pods in `bd-gr-05` can use these: Kafka hands out the short name `kafka:9092`, which other
+namespaces can't resolve. From a laptop, `kubectl port-forward svc/<name> <port>` works for the
+REST APIs, Redis, Cassandra and the HDFS web UI, but not for Kafka or HDFS file reads and writes.
+
+Image tags repeat `versions.env`; change both together.
+
+## Secrets
+
+Keys (aisstream.io, DMI, the alert webhook) go in `.env`, never in a manifest. Then:
 
 ```bash
-docker build -f services/ais-producer/Dockerfile -t REGISTRY/ais-producer:latest .
-docker build -f services/api/Dockerfile          -t REGISTRY/api:latest .
-docker build -t REGISTRY/dashboard:latest services/dashboard
-docker build -f spark/Dockerfile --build-arg SPARK_IMAGE_TAG=$SPARK_IMAGE_TAG -t REGISTRY/spark:4.2.0 .
+make k8s-secrets
 ```
 
-## Known gaps
+This creates `aisstream-secret`, `dmi-secret` and `alert-webhook-secret` in our namespace, and
+skips any key that's empty in `.env`. Run it again after changing a key.
 
-- The connector configs use compose host names (`cassandra`, `redis`, `namenode`, `schema-registry`)
-  which exist here as Services. `connect/filepulse-dma-source.json` also says `kafka:29092`
-  (the compose listener); on Strimzi use `pc-kafka-kafka-bootstrap:9092`. Historical replay is
-  mostly a laptop job, so this was left alone.
-- The Spark CronJobs use `spark-submit --packages`, which needs `spark.kubernetes.file.upload.path`
-  to point at storage the executors can read (HDFS here). Baking the jars into the image is the
-  alternative.
-- Strimzi builds the Connect image from the plugin list. The Avro converter and its dependencies
-  are the part most likely to need adjusting.
-- No Ingress, TLS, authentication or resource tuning.
+## Stop
+
+```bash
+kubectl delete -k infra/k8s/overlays/school
+```
+
+## Moving from the first version (once)
+
+The first version used other names and labels, and Kubernetes can't change those on running
+objects. Delete the old objects once, then start the new ones:
+
+```bash
+source infra/k8s/cluster/env.sh
+kubectl delete deploy,svc,configmap -l app.kubernetes.io/part-of=port-congestion
+make k8s-up
+```
+
+The `-l` only matches objects from the first version, all of them in `bd-gr-05`.
