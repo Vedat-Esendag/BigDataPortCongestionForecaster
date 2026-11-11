@@ -1,0 +1,19 @@
+# Everything we run on the course cluster. Deploy with infra/k8s/deploy.sh, which checks that
+# nothing here leaves our namespace before it applies.
+#
+# Services keep their compose names (kafka:29092, schema-registry:8081, redis:6379), so the
+# connector configs and the apps' environment work unchanged.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bd-gr-05
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: port-congestion
+
+resources:
+  - kafka.yaml
+  - kafka-topics.yaml
+  - schema-registry.yaml
+  - redis.yaml

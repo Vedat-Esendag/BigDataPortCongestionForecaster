@@ -6,7 +6,7 @@ Rule from the team: use the latest stable release of each component, not whateve
 installed. Everything is pinned in [`versions.env`](../versions.env) (and the lock files of the
 Python and Node projects). **None of this is matched to the course cluster.** When the cluster
 versions are known, change `versions.env` and the pins that repeat it (`spark/pyproject.toml`
-pins `pyspark`, `infra/k8s/manifests` repeat image tags); `spark/tests/test_versions.py` fails if
+pins `pyspark`, `infra/k8s` repeats image tags); `spark/tests/test_versions.py` fails if
 the pyspark pin and `versions.env` drift apart.
 
 | Component | Version | Why this one |
@@ -24,7 +24,6 @@ the pyspark pin and `versions.env` drift apart.
 | Prometheus / Grafana | v3.15.1 / 13.2.5 | Latest |
 | uv / ruff | 0.13.6 / 0.17.3 | Latest on PyPI (the local uv is older, 0.11.7; it works) |
 | Connect plugins | see `docs/connectors.md` | Chosen by license, Kafka 4 compatibility and release recency |
-| Strimzi / K8ssandra / kube-prometheus-stack | 1.3.0 / 1.33.0 / 92.14.0 | Latest releases. Strimzi 1.3.0 supports Kafka up to 4.4.0 |
 | Dashboard | React 19.3.1, Vite 8.3.5, TypeScript 7.0.2, MapLibre GL JS 6.16.0, Recharts 3.10.1 | Latest from npm (`package-lock.json`) |
 | Python libraries | locked by `uv.lock` | FastAPI 0.162, websockets 17, confluent-kafka 2.16, redis-py 8.1 and so on |
 
@@ -66,9 +65,11 @@ the pyspark pin and `versions.env` drift apart.
    `docker compose -f infra/docker-compose.yml config` work. Secrets reach only the containers
    that need them (`env_file` of the optional `.env`), and endpoints are set explicitly per
    service so host-side values in `.env` cannot leak into containers.
-10. **No Bitnami charts** on Kubernetes (their free images were moved behind a paid catalog in
-    2025, to the best of our knowledge). Strimzi for Kafka and Connect, K8ssandra for Cassandra,
-    kube-prometheus-stack for monitoring, plain manifests for HDFS, Redis and our own services.
+10. **Kubernetes: plain manifests, no operators and no Bitnami charts.** The course cluster is
+    shared by every group, so we install nothing cluster-wide (no CRDs, no operators) and stay in
+    our namespace `bd-gr-05`. Services keep their compose names (`kafka:29092`, `schema-registry`,
+    `redis`, ...) so connector and app configs work unchanged. Monitoring uses the cluster's shared
+    Prometheus. See `infra/k8s/README.md`.
 11. **FilePulse instead of spooldir** for the DMA CSV source, because spooldir has had no release
     since 2024-12 (see `docs/connectors.md`).
 12. **`day` columns are text** (`yyyy-MM-dd`, UTC) so no component has to convert a date type.
@@ -98,8 +99,8 @@ the pyspark pin and `versions.env` drift apart.
 
 ### Spark on YARN versus Kubernetes
 
-- The stack already has HDFS, which points at YARN on a Hadoop cluster. Kubernetes manifests
-  (including Spark CronJobs) are provided because the course also offers a cluster.
+- The stack already has HDFS, which points at YARN on a Hadoop cluster. The course also offers
+  a Kubernetes cluster, which is what `infra/k8s` targets.
 - On YARN the CronJobs are replaced by a scheduler on the cluster, `--master yarn`, and Spark
   has to match the cluster's Hadoop version; Spark 4.2 needs Java 17 or 21 on every node.
 - On Kubernetes the only requirement is a registry for the images in `spark/Dockerfile`.

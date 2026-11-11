@@ -1,0 +1,42 @@
+# One-shot: creates the topics (idempotent). Same list as scripts/create_topics.sh; change both
+# together. The Job removes itself an hour after it finishes, so the next deploy runs it again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-topics
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      enableServiceLinks: false
+      containers:
+        - name: kafka-topics
+          image: confluentinc/cp-kafka:8.4.0
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              until kafka-broker-api-versions --bootstrap-server kafka:29092 >/dev/null 2>&1; do
+                echo "waiting for kafka"; sleep 5
+              done
+              # name:partitions   (single broker, so replication factor is 1)
+              for entry in \
+                ais.position:3 ais.static:3 \
+                ais.history.raw:3 ais.history.position:3 ais.history.static:3 \
+                weather.forecast:1 weather.observation:1 \
+                ship.prediction:3 port.outlook:1 alerts:1 \
+                analytics.weather_delay:1 eval.metrics:1; do
+                kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+                  --topic "${entry%%:*}" --partitions "${entry##*:}" --replication-factor 1
+              done
+              kafka-topics --bootstrap-server kafka:29092 --list
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
