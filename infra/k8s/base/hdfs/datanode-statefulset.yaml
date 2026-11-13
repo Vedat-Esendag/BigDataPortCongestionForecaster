@@ -1,4 +1,5 @@
-# HDFS datanode, no persistent volume yet. Image tag repeats HADOOP_VERSION in versions.env.
+# HDFS datanode. The file blocks live on a persistent volume, so they survive pod restarts.
+# Image tag repeats HADOOP_VERSION in versions.env.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -24,6 +25,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 1001 # `hadoop` in the image
         runAsGroup: 100
+        fsGroup: 100 # makes the volume writable for the hadoop user
+        fsGroupChangePolicy: OnRootMismatch
       initContainers:
         - name: wait-for-namenode
           image: apache/hadoop:3.5.0
@@ -46,6 +49,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: hdfs-config
+          volumeMounts:
+            - name: data-dir
+              mountPath: /hadoop/dfs
           ports:
             - containerPort: 9866
               name: data
@@ -72,3 +78,12 @@ spec:
             limits:
               cpu: "1" # shared node: cap us so we cannot starve other groups
               memory: 1Gi
+  # Storage class is set per cluster in the overlay (school: hostpath-custom).
+  volumeClaimTemplates:
+    - metadata:
+        name: data-dir
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi # the lake: landing, raw, standardized, curated, models, checkpoints

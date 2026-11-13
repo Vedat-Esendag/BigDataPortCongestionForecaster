@@ -18,7 +18,7 @@ JAVA_MAJOR := $(call java_major,$(JAVA_HOME))
 
 .PHONY: help up up-core down down-volumes topics schemas connectors test lint fmt \
         compose-config run-producer spark-package spark-live dashboard-build download-dma clean \
-        k8s-diff k8s-apply k8s-check k8s-up k8s-secrets
+        k8s-diff k8s-apply k8s-check k8s-up k8s-secrets k8s-test-hdfs
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -52,6 +52,9 @@ k8s-check: ## Smoke test: check every service on the school cluster answers (rea
 	infra/k8s/check.sh
 
 k8s-up: k8s-apply k8s-check ## Deploy to the school cluster and wait until every service answers
+
+k8s-test-hdfs: ## Restart the HDFS pods and check a test file survives (HDFS down 1-2 min)
+	infra/k8s/test-hdfs-restart.sh
 
 k8s-secrets: ## Create or update the Kubernetes Secrets from the keys in .env
 	scripts/create_k8s_secrets.sh

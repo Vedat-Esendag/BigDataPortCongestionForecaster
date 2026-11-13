@@ -19,6 +19,14 @@ resources:
 #   - name: pf/ais-producer
 #     newName: <registry>/pf/ais-producer
 #     newTag: <git-sha>
-#
-# Storage class: nothing uses persistent storage yet. When it does, patch the volume claims here
-# to storageClassName: hostpath-custom.
+
+# Storage class: the school cluster's is hostpath-custom. The base leaves it out so other clusters
+# use their default. Covers every volume claim of the HDFS StatefulSets.
+patches:
+  - target:
+      kind: StatefulSet
+      name: hdfs-.*
+    patch: |-
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: hostpath-custom

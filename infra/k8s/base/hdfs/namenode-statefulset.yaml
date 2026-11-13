@@ -1,5 +1,6 @@
-# HDFS namenode, empty: no folders are created, and no persistent volume yet (it formats itself
-# again on every start). Image tag repeats HADOOP_VERSION in versions.env.
+# HDFS namenode. Its metadata (which files exist and where their blocks are) lives on a
+# persistent volume, so it is formatted only the first time and survives pod restarts. No
+# folders are created yet. Image tag repeats HADOOP_VERSION in versions.env.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -25,6 +26,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 1001 # `hadoop` in the image
         runAsGroup: 100
+        fsGroup: 100 # makes the volume writable for the hadoop user
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: namenode
           image: apache/hadoop:3.5.0
@@ -36,7 +39,10 @@ spec:
                 name: hdfs-config
           env:
             - name: ENSURE_NAMENODE_DIR # formats the namenode when the folder is missing
-              value: /tmp/hadoop/dfs/name
+              value: /hadoop/dfs/name
+          volumeMounts:
+            - name: name-dir
+              mountPath: /hadoop/dfs
           ports:
             - containerPort: 8020
               name: rpc
@@ -63,3 +69,12 @@ spec:
             limits:
               cpu: "1" # shared node: cap us so we cannot starve other groups
               memory: 1Gi
+  # Storage class is set per cluster in the overlay (school: hostpath-custom).
+  volumeClaimTemplates:
+    - metadata:
+        name: name-dir
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi # metadata only, the data itself is on the datanode
