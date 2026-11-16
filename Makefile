@@ -17,7 +17,7 @@ endif
 JAVA_MAJOR := $(call java_major,$(JAVA_HOME))
 
 .PHONY: help up up-core down down-volumes topics schemas connectors test lint fmt \
-        compose-config run-producer spark-package spark-live dashboard-build download-dma clean \
+        compose-config run-producer spark-package spark-live spark-lake dashboard-build download-dma clean \
         k8s-diff k8s-apply k8s-check k8s-up k8s-secrets
 
 help: ## Show this help
@@ -98,12 +98,21 @@ spark-package: ## Zip spark/common and spark/streaming for spark-submit --py-fil
 	cd spark && zip -rq dist/common.zip common -x '*/__pycache__/*'
 	cd spark && zip -rq dist/streaming.zip streaming -x '*/__pycache__/*'
 
+# Settings for Spark jobs on the compose stack. Its HDFS has one datanode, so write one copy of
+# each block (the client default is 3, which leaves every block under-replicated).
+SPARK_COMPOSE_CONF := --conf spark.hadoop.dfs.replication=1
+
 spark-live: spark-package ## Submit the live streaming job inside the spark container
-	$(COMPOSE) --profile apps exec spark /opt/spark/bin/spark-submit \
-		--packages $(SPARK_KAFKA_PACKAGE),$(SPARK_AVRO_PACKAGE) \
-		--conf spark.jars.ivy=/tmp/.ivy2 \
+	$(COMPOSE) --profile apps exec spark /opt/spark/bin/spark-submit $(SPARK_COMPOSE_CONF) \
 		--py-files /opt/app/spark/dist/common.zip,/opt/app/spark/dist/streaming.zip \
 		/opt/app/spark/streaming/live_job.py
+
+TOPIC ?= ais.position
+LAKE_ARGS ?=
+spark-lake: spark-package ## Record a topic in the raw lake zone: make spark-lake TOPIC=ais.static
+	$(COMPOSE) --profile apps exec spark /opt/spark/bin/spark-submit $(SPARK_COMPOSE_CONF) \
+		--py-files /opt/app/spark/dist/common.zip \
+		/opt/app/spark/streaming/kafka_to_lake.py --topic $(TOPIC) $(LAKE_ARGS)
 
 dashboard-build: ## Type-check and build the dashboard
 	cd services/dashboard && npm ci && npm run build
