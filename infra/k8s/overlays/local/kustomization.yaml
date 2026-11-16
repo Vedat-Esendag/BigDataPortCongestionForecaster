@@ -1,0 +1,35 @@
+# The LOCAL OrbStack cluster only (kubectl context "orbstack"): Spark RBAC plus two test Jobs that
+# run spark-submit in cluster mode from inside the cluster. Nothing else from base/ is deployed.
+# Never apply this to the school cluster; always pass --context orbstack. How to use: README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bd-gr-05
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: port-forecaster
+      env: local
+    includeTemplates: true
+
+resources:
+  - namespace.yaml
+  - ../../base/spark
+  - job-spark-pi.yaml
+  - job-smoke-count.yaml
+
+# Settings shared by both Jobs, read by spark-submit through SPARK_CONF_DIR.
+configMapGenerator:
+  - name: spark-local-conf
+    files:
+      - spark-defaults.conf
+    options:
+      disableNameSuffixHash: true
+
+# The image built on this Mac by `docker build` (see README.md). OrbStack's Kubernetes uses the
+# same Docker engine, so it is already on the node and never pulled. Keep this equal to
+# spark.kubernetes.container.image in spark-defaults.conf (kustomize cannot rewrite that file).
+images:
+  - name: spark-image
+    newName: portcongestion/spark
+    newTag: "4.2.0"

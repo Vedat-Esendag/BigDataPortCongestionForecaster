@@ -37,6 +37,7 @@ infra/k8s/
   base/                 every component, no namespace
     <component>/        kustomization.yaml, service.yaml, statefulset.yaml or deployment.yaml
   overlays/school/      namespace bd-gr-05 and the school-specific settings
+  overlays/local/       Spark test jobs on the local OrbStack cluster only (see its README.md)
   cluster/              access to the cluster (kubeconfig, env.sh, setup guide)
   deploy.sh             diff / apply, with the namespace guard
   check.sh              smoke test
