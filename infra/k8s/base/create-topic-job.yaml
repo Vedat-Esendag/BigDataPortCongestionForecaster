@@ -1,16 +1,16 @@
-# One-off Job that creates the topic "Test" on the single-broker Kafka from this repo.
-# Safe to re-run: --if-not-exists makes creation a no-op when the topic already exists.
+# One-off Job that creates topics on the single-broker Kafka from this repo.
+# Safe to re-run: --if-not-exists makes creation a no-op for topics that already exist.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: kafka-create-topic-test
+  name: kafka-create-topics
 spec:
   backoffLimit: 3 # retry the pod up to 3 times if the script fails
   ttlSecondsAfterFinished: 3600 # delete the finished Job after an hour (lets you re-apply later)
   template:
     metadata:
       labels:
-        app: kafka-create-topic # deliberately NOT app.kubernetes.io/name: kafka (see Service selector)
+        app: kafka-create-topics # deliberately NOT app.kubernetes.io/name: kafka (see Service selector)
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
@@ -19,7 +19,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
       containers:
-        - name: create-topic
+        - name: create-topics
           image: confluentinc/cp-kafka:8.4.0 # same image as the broker, so the CLI matches its version
           env:
             - name: KAFKA_HEAP_OPTS
@@ -45,14 +45,28 @@ spec:
                 sleep 5
               done
 
-              kafka-topics --bootstrap-server "${BOOTSTRAP}" \
-                --create --if-not-exists \
-                --topic Test \
-                --partitions 1 \
-                --replication-factor 1
+              # create_topic <name> <partitions> [extra kafka-topics options...]
+              # Replication factor is fixed at 1 because there is only one broker.
+              create_topic() {
+                name="$1"
+                partitions="$2"
+                shift 2
+                echo "Creating topic ${name} (${partitions} partitions)"
+                kafka-topics --bootstrap-server "${BOOTSTRAP}" \
+                  --create --if-not-exists \
+                  --topic "${name}" \
+                  --partitions "${partitions}" \
+                  --replication-factor 1 \
+                  "$@"
+              }
 
-              echo "Resulting topic configuration:"
+              # --- Topics: one line each. Add or remove lines here. ---
+              create_topic Test 1
+              create_topic Test-2 3 --config retention.ms=86400000   # 3 partitions, keep data 1 day
+
+              echo "Resulting topics:"
               kafka-topics --bootstrap-server "${BOOTSTRAP}" --describe --topic Test
+              kafka-topics --bootstrap-server "${BOOTSTRAP}" --describe --topic Test-2
           resources:
             requests:
               cpu: 100m
