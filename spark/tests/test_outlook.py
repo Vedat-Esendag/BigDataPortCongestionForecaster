@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from common.config import load_thresholds
 from streaming.outlook import build_outlook
 
-NOW = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+NOW = datetime(2026, 10, 1, 8, 0, tzinfo=timezone.utc)
 
 
 def _predictions(spark, rows):
@@ -29,7 +29,7 @@ def test_counts_arrivals_and_late_ships_in_one_slot(spark):
     assert len(result) == 1
     slot = result[0]
     assert slot.port == "dkebj"
-    assert slot.slot_start.replace(tzinfo=UTC) == NOW + timedelta(hours=1)
+    assert slot.slot_start.replace(tzinfo=timezone.utc) == NOW + timedelta(hours=1)
     assert slot.expected_arrivals == 3
     assert slot.late_count == 1  # 45 minutes late, threshold is 30
     assert slot.bunching_flag is False

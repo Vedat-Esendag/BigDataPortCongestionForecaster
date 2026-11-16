@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from common.model_paths import is_version_dir, latest_version, version_dir_name
 
 
 def test_version_dir_name_is_utc_and_sortable():
-    assert version_dir_name(datetime(2026, 10, 27, 10, 15, 0, tzinfo=UTC)) == "v=20261027T101500Z"
+    assert (
+        version_dir_name(datetime(2026, 10, 27, 10, 15, 0, tzinfo=timezone.utc))
+        == "v=20261027T101500Z"
+    )
     assert version_dir_name(datetime(2026, 10, 27, 10, 15, 0)) == "v=20261027T101500Z"
     plus_two = timezone(timedelta(hours=2))
     assert (

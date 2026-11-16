@@ -1,5 +1,7 @@
 # Shared ruff config for every Python package in the repo.
 target-version = "py312"
+# The Spark image runs Python 3.10, so spark/ must stay 3.10-compatible (e.g. no datetime.UTC).
+per-file-target-version = { "spark/**" = "py310" }
 line-length = 100
 extend-exclude = ["services/dashboard", "data"]
 
