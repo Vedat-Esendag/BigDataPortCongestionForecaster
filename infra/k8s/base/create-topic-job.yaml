@@ -1,0 +1,62 @@
+# One-off Job that creates the topic "Test" on the single-broker Kafka from this repo.
+# Safe to re-run: --if-not-exists makes creation a no-op when the topic already exists.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-create-topic-test
+spec:
+  backoffLimit: 3 # retry the pod up to 3 times if the script fails
+  ttlSecondsAfterFinished: 3600 # delete the finished Job after an hour (lets you re-apply later)
+  template:
+    metadata:
+      labels:
+        app: kafka-create-topic # deliberately NOT app.kubernetes.io/name: kafka (see Service selector)
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false # same reason as the StatefulSet: avoid injected KAFKA_* variables
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: create-topic
+          image: confluentinc/cp-kafka:8.4.0 # same image as the broker, so the CLI matches its version
+          env:
+            - name: KAFKA_HEAP_OPTS
+              value: -Xms64m -Xmx256m # the CLI needs far less than a broker
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -eu
+              BOOTSTRAP=kafka:9092
+
+              echo "Waiting for the broker at ${BOOTSTRAP}..."
+              for i in $(seq 1 30); do
+                if kafka-topics --bootstrap-server "${BOOTSTRAP}" --list >/dev/null 2>&1; then
+                  echo "Broker is up."
+                  break
+                fi
+                echo "  attempt ${i}/30 failed, retrying in 5s"
+                sleep 5
+              done
+
+              kafka-topics --bootstrap-server "${BOOTSTRAP}" \
+                --create --if-not-exists \
+                --topic Test \
+                --partitions 1 \
+                --replication-factor 1
+
+              echo "Resulting topic configuration:"
+              kafka-topics --bootstrap-server "${BOOTSTRAP}" --describe --topic Test
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
