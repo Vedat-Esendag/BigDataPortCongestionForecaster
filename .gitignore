@@ -2,7 +2,6 @@
 .env
 .env.*
 !.env.example
-kubeconfig.yaml
 *kubeconfig*.yaml
 projectnotes.md
 
