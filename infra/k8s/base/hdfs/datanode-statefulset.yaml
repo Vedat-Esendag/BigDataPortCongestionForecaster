@@ -1,5 +1,6 @@
 # HDFS datanode. The file blocks live on a persistent volume, so they survive pod restarts.
-# Image tag repeats HADOOP_VERSION in versions.env.
+# Image tag repeats HADOOP_VERSION in versions.env. Upgrading from the version without volumes:
+# see namenode-statefulset.yaml.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

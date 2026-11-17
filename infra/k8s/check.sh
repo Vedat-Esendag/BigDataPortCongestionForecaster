@@ -7,7 +7,9 @@ cd "$(dirname "$0")/../.."
 source infra/k8s/cluster/env.sh >/dev/null || exit 1
 
 echo "Waiting up to 5 minutes for every pod to be ready..."
-kubectl wait pod -l app.kubernetes.io/part-of=port-forecaster --for=condition=Ready --timeout=300s >/dev/null ||
+# Pods of finished Jobs (hdfs-init) are never Ready, so leave them out.
+kubectl wait pod -l app.kubernetes.io/part-of=port-forecaster --field-selector=status.phase!=Succeeded \
+  --for=condition=Ready --timeout=300s >/dev/null ||
   echo "Not every pod is ready; the checks below show which service is affected."
 echo
 
@@ -36,6 +38,9 @@ check "redis            PING" \
   bash -c 'kubectl exec deploy/redis -c redis -- redis-cli ping | grep -q PONG'
 check "hdfs             datanode registered with namenode" \
   bash -c "kubectl exec hdfs-namenode-0 -c namenode -- hdfs dfsadmin -report | grep -q 'Live datanodes ([1-9]'"
+check "hdfs             lake folders exist (hdfs-init job)" \
+  kubectl exec hdfs-namenode-0 -c namenode -- bash -c \
+  'for d in /lake/raw /lake/quarantine /models/eta /checkpoints; do hdfs dfs -test -d $d || exit 1; done'
 check "cassandra        CQL answers" \
   kubectl exec cassandra-0 -c cassandra -- cqlsh -e 'describe keyspaces'
 

@@ -17,12 +17,14 @@ wait_ready() {
   kubectl rollout status statefulset/hdfs-namenode --timeout=300s >/dev/null
   kubectl rollout status statefulset/hdfs-datanode --timeout=300s >/dev/null
   echo "  waiting for the namenode to leave safe mode and see the datanode..."
-  nn hdfs dfsadmin -safemode wait >/dev/null
   for _ in $(seq 60); do
-    nn hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes ([1-9]' && return 0
+    if nn hdfs dfsadmin -safemode get 2>/dev/null | grep -q 'Safe mode is OFF' &&
+      nn hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes ([1-9]'; then
+      return 0
+    fi
     sleep 3
   done
-  echo "FAIL: no live datanode after 3 minutes"
+  echo "FAIL: HDFS not out of safe mode with a live datanode after 3 minutes"
   exit 1
 }
 

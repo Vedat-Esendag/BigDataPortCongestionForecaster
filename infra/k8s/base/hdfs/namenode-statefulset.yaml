@@ -1,6 +1,9 @@
 # HDFS namenode. Its metadata (which files exist and where their blocks are) lives on a
 # persistent volume, so it is formatted only the first time and survives pod restarts. No
 # folders are created yet. Image tag repeats HADOOP_VERSION in versions.env.
+# Upgrading from the version without volumes: Kubernetes cannot add volume claims to an existing
+# StatefulSet, so delete both first (HDFS held no data then), then apply:
+#   kubectl delete statefulset hdfs-namenode hdfs-datanode && make k8s-up
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
