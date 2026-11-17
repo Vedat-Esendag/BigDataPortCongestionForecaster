@@ -48,3 +48,17 @@ def test_dockerfile_defaults_match_versions_env():
     versions = _versions()
     for name in ("SPARK_IMAGE_TAG", "SPARK_KAFKA_PACKAGE", "SPARK_AVRO_PACKAGE"):
         assert defaults[name] == versions[name], name
+
+
+def test_sender_confluent_kafka_matches_the_producer_lock():
+    """The test sender in the Spark image uses the same confluent-kafka as services/ais-producer."""
+    root = VERSIONS_FILE.parent
+    dockerfile = (root / "spark" / "Dockerfile").read_text()
+    pinned = next(
+        line.split("=", 1)[1]
+        for line in dockerfile.splitlines()
+        if line.startswith("ARG CONFLUENT_KAFKA_VERSION=")
+    )
+    lock = (root / "services" / "ais-producer" / "uv.lock").read_text()
+    locked = lock.split('name = "confluent-kafka"\nversion = "', 1)[1].split('"', 1)[0]
+    assert pinned == locked

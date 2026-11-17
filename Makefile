@@ -17,7 +17,7 @@ endif
 JAVA_MAJOR := $(call java_major,$(JAVA_HOME))
 
 .PHONY: help up up-core down down-volumes topics schemas connectors test lint fmt \
-        compose-config run-producer spark-package spark-live spark-lake dashboard-build download-dma clean \
+        compose-config run-producer spark-package spark-live spark-lake spark-image dashboard-build download-dma clean \
         k8s-diff k8s-apply k8s-check k8s-up k8s-secrets
 
 help: ## Show this help
@@ -113,6 +113,23 @@ spark-lake: spark-package ## Record a topic in the raw lake zone: make spark-lak
 	$(COMPOSE) --profile apps exec spark /opt/spark/bin/spark-submit $(SPARK_COMPOSE_CONF) \
 		--py-files /opt/app/spark/dist/common.zip \
 		/opt/app/spark/streaming/kafka_to_lake.py --topic $(TOPIC) $(LAKE_ARGS)
+
+# The Spark image for Kubernetes (infra/k8s/spark), for both node types: amd64 (school) and arm64
+# (Apple Silicon). Tagged with the commit; "-dirty" when the tree has uncommitted changes, so a
+# tag never claims to be a commit it is not. Loaded into the local Docker only, never pushed.
+SPARK_JOBS_IMAGE := spark-jobs
+SPARK_JOBS_TAG = $(shell git rev-parse --short HEAD)$(shell [ -n "$$(git status --porcelain)" ] && echo -dirty)
+SPARK_PLATFORMS ?= linux/amd64,linux/arm64
+
+spark-image: ## Build spark-jobs:<git sha> for amd64 and arm64 into local Docker (no push)
+	@tag="$(SPARK_JOBS_TAG)"; \
+	case "$$tag" in *-dirty) echo "warning: uncommitted changes, tagging $(SPARK_JOBS_IMAGE):$$tag";; esac; \
+	docker buildx build --platform $(SPARK_PLATFORMS) --load \
+		--build-arg SPARK_IMAGE_TAG=$(SPARK_IMAGE_TAG) \
+		--build-arg SPARK_KAFKA_PACKAGE=$(SPARK_KAFKA_PACKAGE) \
+		--build-arg SPARK_AVRO_PACKAGE=$(SPARK_AVRO_PACKAGE) \
+		-f spark/Dockerfile -t $(SPARK_JOBS_IMAGE):$$tag . && \
+	echo "built $(SPARK_JOBS_IMAGE):$$tag ($(SPARK_PLATFORMS))"
 
 dashboard-build: ## Type-check and build the dashboard
 	cd services/dashboard && npm ci && npm run build

@@ -5,7 +5,7 @@
 | `common/` | shared code: Avro on Kafka (`avro_io.py`), config and lake paths, cleaning, features |
 | `streaming/` | streaming jobs: `live_job.py` (predictions), `kafka_to_lake.py` (raw copy to HDFS) |
 | `batch/`, `training/` | batch analytics, evaluation, model training |
-| `jobs/` | small check jobs (`smoke_count.py`) |
+| `jobs/` | small check jobs (`smoke_count.py`, `lake_counts.py`) |
 | `tests/` | `make test` runs these; fixtures in `tests/fixtures/` |
 
 The image (`spark/Dockerfile`) has the Kafka and Avro connectors baked in, so no job needs

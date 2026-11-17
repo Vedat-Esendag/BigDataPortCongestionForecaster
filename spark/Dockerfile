@@ -13,6 +13,12 @@ USER root
 # PyYAML is the only Python dependency the jobs need beyond PySpark itself.
 RUN pip3 install --no-cache-dir pyyaml
 
+# Only for the in-cluster test sender (scripts/send_ais_fixtures.py, Job send-fixtures in
+# infra/k8s/spark/school/one-off): Kafka is not reachable from a laptop, so the sender runs as a
+# pod with this image. No Spark job imports it. Same version as services/ais-producer/uv.lock.
+ARG CONFLUENT_KAFKA_VERSION=2.16.0
+RUN pip3 install --no-cache-dir "confluent-kafka[avro,schemaregistry]==${CONFLUENT_KAFKA_VERSION}"
+
 # Resolve the packages with Spark's own resolver (the same jar set --packages would download),
 # then copy into /opt/spark/jars only the jars Spark does not already ship, so no class is on the
 # classpath twice. The build log lists every jar as "added" or "skipped".
@@ -32,6 +38,8 @@ WORKDIR /opt/app
 COPY spark /opt/app/spark
 COPY config /opt/app/config
 COPY schemas/avro /opt/app/schemas/avro
+# The test sender; it finds the fixtures and schemas above relative to /opt/app.
+COPY scripts/send_ais_fixtures.py /opt/app/scripts/send_ais_fixtures.py
 RUN mkdir -p spark/dist && cd spark && python3 -m zipfile -c dist/common.zip common \
     && python3 -m zipfile -c dist/streaming.zip streaming \
     && chown -R spark:spark /opt/app

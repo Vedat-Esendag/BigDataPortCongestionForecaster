@@ -1,0 +1,49 @@
+# REHEARSAL ONLY, on the local OrbStack cluster (kubectl --context orbstack): the school setup
+# on a laptop. The base Kafka, Schema Registry, HDFS and Spark RBAC, plus ../school and
+# ../school/one-off unchanged except for the image source (a locally built image). Never apply
+# this to the school cluster. How to use: ../README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bd-gr-05
+
+# No env label here, so the Spark objects from ../school keep theirs and differ only in image.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: port-forecaster
+    includeTemplates: true
+
+resources:
+  - namespace.yaml
+  - ../../base/kafka
+  - ../../base/schema-registry
+  - ../../base/hdfs
+  - ../../base/spark
+  - ../school
+  - ../school/one-off
+
+# The only difference from the school: the image built on this Mac, already on OrbStack's node
+# (same Docker engine), so IfNotPresent never pulls it. Tag it first:
+#   docker tag spark-jobs:<tag from make spark-image> spark-jobs:rehearsal
+images:
+  - name: REGISTRY_NOT_CHOSEN/spark-jobs
+    newName: spark-jobs
+    newTag: rehearsal
+
+# As in ../school and ../school/one-off: executors run the image mapped just above.
+replacements:
+  - source:
+      kind: Job
+      name: smoke-count
+      fieldPath: spec.template.spec.containers.[name=submit].image
+    targets:
+      - select:
+          kind: Job
+          name: smoke-count
+        fieldPaths:
+          - spec.template.spec.containers.[name=submit].env.[name=SPARK_IMAGE].value
+      - select:
+          kind: StatefulSet
+          labelSelector: app.kubernetes.io/name=kafka-to-lake
+        fieldPaths:
+          - spec.template.spec.containers.[name=driver].env.[name=SPARK_IMAGE].value
