@@ -1,0 +1,14 @@
+# Connect's REST API, used to deploy connectors:
+#   kubectl port-forward svc/kafka-connect 8083:8083
+#   CONNECT_URL=http://localhost:8083 scripts/deploy_connectors.sh
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-connect
+spec:
+  selector:
+    app.kubernetes.io/name: kafka-connect
+  ports:
+    - name: rest
+      port: 8083
+      targetPort: rest

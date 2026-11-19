@@ -5,7 +5,7 @@
     "tasks.max": "3",
     "topics": "ais.position,ais.static,ais.history.position,ais.history.static,weather.forecast,weather.observation,ship.prediction,port.outlook,alerts,analytics.weather_delay,eval.metrics",
 
-    "hdfs.url": "hdfs://namenode:8020",
+    "hdfs.url": "hdfs://hdfs-namenode:8020",
     "topics.dir": "/lake/raw",
     "logs.dir": "/lake/_wal",
 

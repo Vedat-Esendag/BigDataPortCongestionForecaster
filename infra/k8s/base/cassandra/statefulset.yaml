@@ -1,5 +1,8 @@
-# Cassandra, one node, empty: no keyspaces or tables, and no persistent volume yet (data is lost
-# when the pod restarts). Image tag repeats CASSANDRA_VERSION in versions.env.
+# Cassandra, one node, empty: no keyspaces or tables yet. Its data, commit log and saved caches
+# are on a persistent volume, so they survive pod restarts. Image tag repeats CASSANDRA_VERSION in
+# versions.env.
+# Upgrading from the version without a volume: Kubernetes cannot add a volume claim to an existing
+# StatefulSet, so delete it first (kubectl delete statefulset cassandra), then apply.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -22,6 +25,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 999
+        fsGroup: 999 # makes the volume writable for the cassandra user
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: cassandra
           image: cassandra:5.0.9
@@ -34,6 +39,9 @@ spec:
               value: 256M
             - name: JVM_EXTRA_OPTS
               value: -XX:MaxDirectMemorySize=512M
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/cassandra
           ports:
             - containerPort: 9042
               name: cql
@@ -58,3 +66,12 @@ spec:
             limits:
               cpu: "2" # shared node: cap us so we cannot starve other groups
               memory: 3Gi
+  # Storage class is set per cluster in the overlay (school: hostpath-custom).
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi

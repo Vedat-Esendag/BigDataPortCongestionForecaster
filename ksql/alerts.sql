@@ -24,18 +24,34 @@ CREATE STREAM IF NOT EXISTS alerts_out WITH (
 SELECT
   `port_key`,
   `port` AS `port`,
-  CASE
-    WHEN `late_count` >= 6 OR `expected_waiting_ships` >= 6 THEN 'critical'
-    ELSE 'warning'
-  END AS `alert_level`,
+  -- Level, metric and threshold all come from the rule that fired, checked from critical to
+  -- warning and late_count before expected_waiting_ships, so the message names the real cause.
+  CASE WHEN `late_count` >= 6 OR `expected_waiting_ships` >= 6 THEN 'critical' ELSE 'warning' END
+    AS `alert_level`,
   `slot_start` AS `slot_start`,
-  CASE WHEN `late_count` >= 3 THEN 'late_count' ELSE 'expected_waiting_ships' END AS `metric`,
-  CASE WHEN `late_count` >= 3 THEN CAST(`late_count` AS DOUBLE) ELSE `expected_waiting_ships` END AS `value`,
-  CAST(3 AS DOUBLE) AS `threshold`,
+  CASE
+    WHEN `late_count` >= 6 THEN 'late_count'
+    WHEN `expected_waiting_ships` >= 6 THEN 'expected_waiting_ships'
+    WHEN `late_count` >= 3 THEN 'late_count'
+    ELSE 'expected_waiting_ships'
+  END AS `metric`,
+  CASE
+    WHEN `late_count` >= 6 THEN CAST(`late_count` AS DOUBLE)
+    WHEN `expected_waiting_ships` >= 6 THEN `expected_waiting_ships`
+    WHEN `late_count` >= 3 THEN CAST(`late_count` AS DOUBLE)
+    ELSE `expected_waiting_ships`
+  END AS `value`,
+  CASE WHEN `late_count` >= 6 OR `expected_waiting_ships` >= 6 THEN CAST(6 AS DOUBLE)
+    ELSE CAST(3 AS DOUBLE) END AS `threshold`,
   CONCAT(
     `port`, ': ',
-    CASE WHEN `late_count` >= 3 THEN 'late ships = ' ELSE 'expected waiting ships = ' END,
-    CASE WHEN `late_count` >= 3 THEN CAST(`late_count` AS STRING) ELSE CAST(`expected_waiting_ships` AS STRING) END
+    CASE
+      WHEN `late_count` >= 6 THEN CONCAT('late ships = ', CAST(`late_count` AS STRING))
+      WHEN `expected_waiting_ships` >= 6
+        THEN CONCAT('expected waiting ships = ', CAST(`expected_waiting_ships` AS STRING))
+      WHEN `late_count` >= 3 THEN CONCAT('late ships = ', CAST(`late_count` AS STRING))
+      ELSE CONCAT('expected waiting ships = ', CAST(`expected_waiting_ships` AS STRING))
+    END
   ) AS `message`,
   FROM_UNIXTIME(ROWTIME) AS `created_at`
 FROM outlook_in
