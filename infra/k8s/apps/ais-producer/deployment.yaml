@@ -1,0 +1,75 @@
+# The AIS live producer (F1): holds the aisstream.io WebSocket, reconnects with backoff after a
+# drop, and writes every message to Kafka (ais.position, ais.static) before anything processes it.
+# Kubernetes restarts it after a crash. Image built from services/ais-producer/Dockerfile, with
+# config/ports.yaml and the Avro schemas baked in.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ais-producer
+spec:
+  # Exactly one: two producers would both subscribe and write every message twice.
+  replicas: 1
+  strategy:
+    type: Recreate # stop the old pod before the new one connects, for the same reason
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ais-producer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ais-producer
+    spec:
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534 # `nobody`, as in the Dockerfile
+        runAsGroup: 65534
+      containers:
+        - name: ais-producer
+          image: portcongestion/ais-producer:latest
+          ports:
+            - containerPort: 9100
+              name: metrics
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: SCHEMA_REGISTRY_URL
+              value: http://schema-registry:8081
+            - name: PRODUCER_METRICS_PORT
+              value: "9100"
+            # Created by scripts/create_k8s_secrets.sh (make k8s-secrets). Not optional: the
+            # producer cannot do anything without it.
+            - name: AISSTREAM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aisstream-secret
+                  key: AISSTREAM_API_KEY
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # The metrics server starts with the process, so these show the process is up and
+          # answering. Reconnecting to aisstream.io is the producer's own job (backoff), not a
+          # reason to restart the pod.
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

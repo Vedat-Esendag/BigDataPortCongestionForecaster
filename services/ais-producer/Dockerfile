@@ -11,7 +11,9 @@ WORKDIR /app
 COPY services/ais-producer/pyproject.toml services/ais-producer/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY services/ais-producer/src ./src
-RUN uv sync --frozen --no-dev
+# --no-editable copies the package into .venv; an editable install would point at /app/src,
+# which the final stage does not have.
+RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:${PYTHON_VERSION}-slim
 WORKDIR /app

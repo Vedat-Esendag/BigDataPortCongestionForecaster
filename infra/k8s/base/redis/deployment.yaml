@@ -26,6 +26,9 @@ spec:
       containers:
         - name: redis
           image: redis:8.8.4
+          # KA = keyspace events for all commands, as in compose. The Redis sink cannot PUBLISH, so
+          # the API learns about new predictions from these events (F10 live push).
+          args: ["redis-server", "--notify-keyspace-events", "KA"]
           ports:
             - containerPort: 6379
               name: redis

@@ -19,6 +19,20 @@ resources:
 #   - name: pf/ais-producer
 #     newName: <registry>/pf/ais-producer
 #     newTag: <git-sha>
-#
-# Storage class: nothing uses persistent storage yet. When it does, patch the volume claims here
-# to storageClassName: hostpath-custom.
+
+# Storage class: the school cluster's is hostpath-custom. The base leaves it out so other clusters
+# use their default. Covers the volume claim of every StatefulSet that has one.
+patches:
+  - target:
+      kind: StatefulSet
+      name: hdfs-.*|kafka|cassandra
+    patch: |-
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: hostpath-custom
+  - target:
+      kind: PersistentVolumeClaim
+    patch: |-
+      - op: add
+        path: /spec/storageClassName
+        value: hostpath-custom
