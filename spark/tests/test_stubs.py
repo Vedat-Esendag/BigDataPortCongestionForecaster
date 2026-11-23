@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from common.config import load_ports
 from common.features import build_features
@@ -10,8 +10,8 @@ from common.port_events import assign_destination_port, detect_port_events
 from common.schemas import FEATURE_BASE_SCHEMA, PORT_EVENT_SCHEMA
 from streaming.predictor import predict_eta
 
-ETA = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
-SEEN = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+ETA = datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc)
+SEEN = datetime(2026, 10, 1, 8, 0, tzinfo=timezone.utc)
 
 SQUARE = "[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]"
 

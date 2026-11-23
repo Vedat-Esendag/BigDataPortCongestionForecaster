@@ -1,0 +1,63 @@
+# spark/jobs/lake_counts.py: what the recorders wrote to /lake/raw, per dataset: rows, distinct
+# (partition, offset) pairs, duplicates, and the offset range per partition with its gaps.
+# HDFS cannot be read from a laptop, so this is how to check the lake. Runs Spark in local mode
+# inside this one pod (no executor pods): it only reads a few files.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lake-check
+  labels:
+    one-off: lake-check
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        one-off: lake-check
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false # local mode: nothing here talks to the Kubernetes API
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      containers:
+        - name: check
+          image: spark-jobs
+          command: [/opt/spark/bin/spark-submit]
+          args:
+            - --master
+            - local[2]
+            - --deploy-mode
+            - client
+            - --conf
+            - spark.ui.enabled=false
+            - --py-files
+            - /opt/app/spark/dist/common.zip
+            - /opt/app/spark/jobs/lake_counts.py
+          env:
+            - name: SPARK_CONF_DIR
+              value: /opt/spark/conf-school
+          envFrom:
+            - configMapRef:
+                name: spark-school-env # HDFS_URI
+          volumeMounts:
+            - name: spark-conf
+              mountPath: /opt/spark/conf-school
+              readOnly: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: spark-conf
+          configMap:
+            name: spark-school-conf

@@ -1,0 +1,54 @@
+# Spark on the school cluster: settings and the Kafka-to-lake recorders, all in namespace
+# bd-gr-05. Kafka, Schema Registry, HDFS and the "spark" service account come from
+# overlays/school; this folder adds only Spark objects. Safe to deploy as a whole: the one-off test
+# Jobs are in one-off/, which this folder does not list. Not wired into deploy.sh yet (later, with
+# Gerardas). How to use: ../README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bd-gr-05
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: port-forecaster
+      env: school
+      layer: spark-jobs
+    includeTemplates: true
+
+resources:
+  - recorder-ais-position.yaml
+  - recorder-ais-static.yaml
+
+configMapGenerator:
+  - name: spark-school-conf # spark-submit reads it through SPARK_CONF_DIR
+    files:
+      - spark-defaults.conf
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/component: spark-settings
+  - name: spark-school-env # addresses inside the namespace, for every pod here (envFrom)
+    envs:
+      - school.env
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/component: spark-settings
+
+components:
+  - image # the IMAGE setting
+
+# Executors must run the same image as their driver. Copy the image (after the mapping in
+# image/) into each recorder's SPARK_IMAGE variable, which it passes to spark-submit. An overlay
+# that changes the image must repeat this, because replacements run before a parent's images.
+replacements:
+  - source:
+      kind: StatefulSet
+      name: kafka-to-lake-ais-position
+      fieldPath: spec.template.spec.containers.[name=driver].image
+    targets:
+      - select:
+          kind: StatefulSet
+          labelSelector: app.kubernetes.io/name=kafka-to-lake
+        fieldPaths:
+          - spec.template.spec.containers.[name=driver].env.[name=SPARK_IMAGE].value

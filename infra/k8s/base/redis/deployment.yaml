@@ -1,13 +1,15 @@
-# Redis with its default settings and no persistent volume yet (data is lost when the pod
-# restarts). Image tag repeats REDIS_VERSION in versions.env.
+# Redis: the latest state of every ship and port, for the dashboard (docs/storage.md).
+# Settings are in redis.conf next to this file. Data is kept in the data-redis volume claim, so
+# a restarted pod comes back with the state it had (to within about a second).
+# Image tag repeats REDIS_VERSION in versions.env.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: redis
 spec:
-  replicas: 1
+  replicas: 1 # one Redis only: two would each hold half the writes
   strategy:
-    type: Recreate # once it has a volume, two pods must never share it
+    type: Recreate # stop the old pod before the new one starts: the volume fits one pod at a time
   selector:
     matchLabels:
       app.kubernetes.io/name: redis
@@ -23,12 +25,24 @@ spec:
         runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 999
+        # Make the volume writable for the redis user. Some storage types ignore this (the
+        # hostpath ones create folders anyone can write to, so it isn't needed there). If the
+        # pod logs "Permission denied" on /data, this is where to look.
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: redis
           image: redis:8.8.4
+          args: ["redis-server", "/etc/redis/redis.conf"]
           ports:
             - containerPort: 6379
               name: redis
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /etc/redis
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -49,3 +63,10 @@ spec:
             limits:
               cpu: 500m # shared node: cap us so we cannot starve other groups
               memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: data-redis
+        - name: config
+          configMap:
+            name: redis-config # generated from redis.conf; the name gets a hash, see kustomization.yaml

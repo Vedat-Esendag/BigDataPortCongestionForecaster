@@ -1,0 +1,5 @@
+# Same namespace name as the school cluster, so manifests and commands stay the same.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bd-gr-05

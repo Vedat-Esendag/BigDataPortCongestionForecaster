@@ -1,0 +1,12 @@
+# The Spark image for everything in ../ and ../one-off, in one place. Both list this component.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# >>> IMAGE: the registry is not chosen yet (S3b, Gerardas). The uppercase placeholder is not a
+# valid image name, so a pod fails at once instead of pulling anything. At deploy time set the
+# registry and the tag `make spark-image` prints (spark-jobs:<git sha>).
+images:
+  - name: spark-jobs
+    newName: REGISTRY_NOT_CHOSEN/spark-jobs
+    newTag: GIT_SHA_NOT_SET
+# <<< IMAGE

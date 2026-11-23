@@ -1,0 +1,20 @@
+# Turns schema.cql into a ConfigMap for the cassandra-init Job on Kubernetes
+# (infra/k8s/base/cassandra/schema-job.yaml).
+#
+# Why this file lives here and not in infra/k8s: Kustomize only reads files inside the folder of
+# a kustomization.yaml. Keeping this kustomization next to schema.cql means there is ONE schema
+# file, used by both docker compose (cassandra-init) and Kubernetes. A copy in infra/k8s would
+# slowly drift from the original.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: cassandra-init
+      app.kubernetes.io/component: schema
+    includeTemplates: true
+
+configMapGenerator:
+  - name: cassandra-schema
+    files:
+      - schema.cql

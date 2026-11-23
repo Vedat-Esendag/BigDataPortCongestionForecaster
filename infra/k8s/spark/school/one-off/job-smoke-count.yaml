@@ -1,0 +1,62 @@
+# spark/jobs/smoke_count.py in cluster mode: counts the AIS fixture inside the image. The driver
+# log shows "rows 20", the master URL and "executors 2". Needs no Kafka or HDFS.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-count
+  labels:
+    one-off: smoke-count
+spec:
+  backoffLimit: 0 # a failed submit must not start more drivers
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        spark-job: smoke-count
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      securityContext: # the image says USER spark by name; Kubernetes needs the number
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      containers:
+        - name: submit
+          image: spark-jobs
+          command: [/opt/spark/bin/spark-submit]
+          args:
+            - --name
+            - smoke-count
+            - --conf
+            - spark.kubernetes.container.image=$(SPARK_IMAGE)
+            - --conf
+            - spark.executor.instances=2
+            - --conf
+            - spark.kubernetes.driver.label.spark-job=smoke-count
+            - --conf
+            - spark.kubernetes.executor.label.spark-job=smoke-count
+            - local:///opt/app/spark/jobs/smoke_count.py
+          env:
+            - name: SPARK_IMAGE
+              value: set-by-kustomize # replacements in kustomization.yaml
+            - name: SPARK_CONF_DIR
+              value: /opt/spark/conf-school
+          volumeMounts:
+            - name: spark-conf
+              mountPath: /opt/spark/conf-school
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: spark-conf
+          configMap:
+            name: spark-school-conf

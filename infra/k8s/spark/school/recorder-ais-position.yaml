@@ -1,0 +1,135 @@
+# The recorder for ais.position (spark/streaming/kafka_to_lake.py), kept running by Kubernetes.
+#
+# The driver runs inside this pod (client mode) and starts one executor pod. A StatefulSet with
+# one replica, not a Deployment, because it never runs two pods at once: when the driver pod dies
+# or is deleted, the replacement starts only after the old pod is gone, so two drivers never
+# write the same checkpoint. The new driver continues from the checkpoint, so nothing is lost or
+# written twice. The executors are owned by the driver pod and go away with it.
+#
+# recorder-ais-static.yaml is the same file with the topic name changed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-to-lake-ais-position
+  labels:
+    app.kubernetes.io/name: kafka-to-lake
+    spark-job: kafka-to-lake-ais-position
+spec:
+  clusterIP: None # headless: a stable DNS name for the StatefulSet pod
+  selector:
+    spark-job: kafka-to-lake-ais-position
+    spark-role: driver
+  ports:
+    - name: driver
+      port: 7078
+    - name: blockmanager
+      port: 7079
+    - name: ui
+      port: 4040
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka-to-lake-ais-position
+  labels:
+    app.kubernetes.io/name: kafka-to-lake
+    spark-job: kafka-to-lake-ais-position
+spec:
+  serviceName: kafka-to-lake-ais-position
+  replicas: 1 # never more: one driver per checkpoint
+  selector:
+    matchLabels:
+      spark-job: kafka-to-lake-ais-position
+      spark-role: driver
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-to-lake
+        spark-job: kafka-to-lake-ais-position
+        spark-role: driver
+    spec:
+      serviceAccountName: spark # the driver creates its executor pods
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      containers:
+        - name: driver
+          image: spark-jobs
+          command: [/opt/spark/bin/spark-submit]
+          args:
+            - --deploy-mode
+            - client
+            - --name
+            - kafka-to-lake-ais-position
+            - --conf
+            - spark.kubernetes.container.image=$(SPARK_IMAGE)
+            # Executors connect back to this pod, and are owned by it.
+            - --conf
+            - spark.driver.host=$(POD_IP)
+            - --conf
+            - spark.driver.bindAddress=0.0.0.0
+            - --conf
+            - spark.driver.port=7078
+            - --conf
+            - spark.driver.blockManager.port=7079
+            - --conf
+            - spark.kubernetes.driver.pod.name=$(POD_NAME)
+            - --conf
+            - spark.kubernetes.executor.label.spark-job=kafka-to-lake-ais-position
+            - --py-files
+            - /opt/app/spark/dist/common.zip
+            - /opt/app/spark/streaming/kafka_to_lake.py
+            - --topic
+            - ais.position
+          env:
+            - name: SPARK_IMAGE
+              value: set-by-kustomize # replacements in kustomization.yaml
+            - name: SPARK_CONF_DIR
+              value: /opt/spark/conf-school
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          envFrom:
+            - configMapRef:
+                name: spark-school-env # KAFKA_BOOTSTRAP_SERVERS, HDFS_URI
+          ports:
+            - containerPort: 7078
+              name: driver
+            - containerPort: 7079
+              name: blockmanager
+            - containerPort: 4040
+              name: ui
+          volumeMounts:
+            - name: spark-conf
+              mountPath: /opt/spark/conf-school
+              readOnly: true
+          # A failed streaming query ends the process, and the container restarts. This catches a
+          # driver that is still running but no longer answers.
+          livenessProbe:
+            tcpSocket:
+              port: ui
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 1280Mi # 512m driver heap plus the Python process
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: spark-conf
+          configMap:
+            name: spark-school-conf

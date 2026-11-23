@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
+from collections.abc import Sequence
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
@@ -48,13 +49,29 @@ def fetch_schema_id(registry_url: str, topic: str) -> int:
         return json.load(response)["id"]
 
 
-def decode_confluent_avro(df: DataFrame, avsc: str, *, binary_col: str = "value") -> DataFrame:
-    """Strip the 5-byte header from `binary_col` and decode it into one column per Avro field."""
+def decode_confluent_avro(
+    df: DataFrame,
+    avsc: str,
+    *,
+    binary_col: str = "value",
+    kafka_columns: Sequence[str] = (),
+) -> DataFrame:
+    """Strip the 5-byte header from `binary_col` and decode it into one column per Avro field.
+
+    `kafka_columns` keeps other Kafka source columns (for example partition, offset) as
+    kafka_<name>, placed after kafka_timestamp. By default none are kept.
+    """
     payload = F.expr(f"substring({binary_col}, {HEADER_LENGTH + 1}, length({binary_col}))")
     decoded = from_avro(payload, avsc, {"mode": "PERMISSIVE"})
+    kept = [F.col(name).alias(f"kafka_{name}") for name in kafka_columns]
     return df.select(
-        F.col("key").cast("string").alias("key"), decoded.alias("record"), "timestamp"
-    ).select("key", F.col("timestamp").alias("kafka_timestamp"), "record.*")
+        F.col("key").cast("string").alias("key"), decoded.alias("record"), "timestamp", *kept
+    ).select(
+        "key",
+        F.col("timestamp").alias("kafka_timestamp"),
+        *[f"kafka_{name}" for name in kafka_columns],
+        "record.*",
+    )
 
 
 def read_topic(
@@ -64,8 +81,12 @@ def read_topic(
     *,
     streaming: bool = True,
     starting_offsets: str = "latest",
+    kafka_columns: Sequence[str] = (),
 ) -> DataFrame:
-    """Read an Avro topic as a DataFrame with columns key, kafka_timestamp and the Avro fields."""
+    """Read an Avro topic as a DataFrame with columns key, kafka_timestamp and the Avro fields.
+
+    `kafka_columns` is passed on to decode_confluent_avro.
+    """
     reader = spark.readStream if streaming else spark.read
     options = {
         "kafka.bootstrap.servers": bootstrap_servers,
@@ -73,7 +94,7 @@ def read_topic(
         "startingOffsets": starting_offsets,
     }
     raw = reader.format("kafka").options(**options).load()
-    return decode_confluent_avro(raw, load_avsc(topic))
+    return decode_confluent_avro(raw, load_avsc(topic), kafka_columns=kafka_columns)
 
 
 def encode_confluent_avro(df: DataFrame, avsc: str, schema_id: int, *, key_col: str) -> DataFrame:

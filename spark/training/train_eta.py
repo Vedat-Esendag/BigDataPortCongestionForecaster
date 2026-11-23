@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from pyspark.sql import DataFrame, SparkSession
 
@@ -75,7 +75,7 @@ def main() -> None:
     train, validation = data.randomSplit([0.8, 0.2], seed=42)
     model = fit_model(train)
     window = residual_window(model, validation, coverage)
-    path = save_model(model, window, args.model_root, datetime.now(UTC))
+    path = save_model(model, window, args.model_root, datetime.now(timezone.utc))
     log.info("saved model to %s", path)
 
 
