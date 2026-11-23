@@ -18,7 +18,8 @@ JAVA_MAJOR := $(call java_major,$(JAVA_HOME))
 
 .PHONY: help up up-core down down-volumes topics schemas connectors test lint fmt \
         compose-config run-producer spark-package spark-live spark-lake spark-image dashboard-build download-dma clean \
-        k8s-diff k8s-apply k8s-check k8s-up k8s-secrets
+        k8s-diff k8s-apply k8s-check k8s-up k8s-secrets \
+        r1-package r1-up r1-ingest r1-order r1-arrivals r1-compare
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -113,6 +114,39 @@ spark-lake: spark-package ## Record a topic in the raw lake zone: make spark-lak
 	$(COMPOSE) --profile apps exec spark /opt/spark/bin/spark-submit $(SPARK_COMPOSE_CONF) \
 		--py-files /opt/app/spark/dist/common.zip \
 		/opt/app/spark/streaming/kafka_to_lake.py --topic $(TOPIC) $(LAKE_ARGS)
+
+# --- R1: the October Esbjerg waiting analysis in Spark (docs/spark-milestones.md) ----------
+# PORTAREA_DIR: the folder with portarea_<day>.csv.gz, year_comparison.json and year/, mounted
+# read-only (infra/compose.r1.yml). R1_BLOCKS: blocks of the day list, empty = all 84 days.
+export PORTAREA_DIR
+R1_BLOCKS ?=
+R1_DRIVER_MEMORY ?= 6g
+R1_COMPOSE := $(COMPOSE) -f infra/compose.r1.yml
+R1_BLOCK_ARGS = $(if $(strip $(R1_BLOCKS)),--blocks $(R1_BLOCKS))
+R1_SUBMIT = $(R1_COMPOSE) --profile apps exec spark /opt/spark/bin/spark-submit $(SPARK_COMPOSE_CONF) \
+	--driver-memory $(R1_DRIVER_MEMORY) --conf spark.sql.session.timeZone=UTC \
+	--conf spark.driver.extraJavaOptions=-Duser.timezone=UTC \
+	--py-files /opt/app/spark/dist/common.zip,/opt/app/spark/dist/jobs.zip
+
+r1-package: spark-package
+	cd spark && rm -f dist/jobs.zip && zip -rq dist/jobs.zip jobs -x '*/__pycache__/*'
+
+r1-up: ## R1: start HDFS and the Spark container with PORTAREA_DIR mounted read-only
+	$(R1_COMPOSE) --profile core --profile storage --profile apps up -d --build namenode datanode hdfs-init spark
+
+r1-ingest: r1-package ## R1a: portarea CSVs -> /lake/standardized + /lake/quarantine (R1_BLOCKS=0 for one block)
+	$(R1_SUBMIT) /opt/app/spark/jobs/ingest_portarea.py $(R1_BLOCK_ARGS)
+
+R1_ORDER_DAYS ?= 2025-11-08 2026-10-14
+r1-order: r1-package ## R1a check: SHA-256 of the row order, Spark vs plain Python (R1_ORDER_DAYS)
+	$(R1_SUBMIT) /opt/app/spark/jobs/check_source_order.py --days $(R1_ORDER_DAYS)
+
+r1-arrivals: r1-package ## R1b: arrivals, stops and ETA at entry -> /lake/curated
+	$(R1_SUBMIT) /opt/app/spark/jobs/esbjerg_arrivals.py $(R1_BLOCK_ARGS)
+
+R1_COMPARE_ARGS ?=
+r1-compare: r1-package ## R1c: event-level comparison with the October output
+	$(R1_SUBMIT) /opt/app/scripts/compare_r1.py $(R1_BLOCK_ARGS) $(R1_COMPARE_ARGS)
 
 # The Spark image for Kubernetes (infra/k8s/spark), for both node types: amd64 (school) and arm64
 # (Apple Silicon). Tagged with the commit; "-dirty" when the tree has uncommitted changes, so a

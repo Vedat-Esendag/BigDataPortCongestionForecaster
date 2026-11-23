@@ -13,6 +13,9 @@ Each milestone: plan, implement, show real output, review, commit.
 | S3b | Run on the school cluster | Blocked |
 | S4 | Cleaning (F4): raw to standardized and quarantine | Planned |
 | S5 | DMA history into the lake, filtered to Esbjerg | Planned |
+| R1 | The October Esbjerg waiting analysis rebuilt in Spark, compared event by event | Done, not committed |
+| R2 | Method fixes: repeat visits, ETA at a fixed lead time, the R1 decisions to review | Planned |
+| R3 | Fresh full DMA days, cut to Esbjerg in Spark, then the R1 pipeline on them | Planned |
 | PR | One pull request to `main` | After S3a and S4, or once S3b runs |
 
 ## S1a: Fix the Spark image (done)
@@ -262,6 +265,11 @@ checks as S3a.
 Known risk until Kafka has persistent storage: if Kafka loses its data but HDFS keeps the
 recorder's checkpoint, the recorder stops with a data-loss error instead of skipping the gap.
 
+Open issues (local OrbStack rehearsal):
+- OrbStack rehearsal recorders (kafka-to-lake-ais-position-0 / -ais-static-0) crash-loop after
+  OrbStack restart, 13 restarts, about 30 leftover exec pods; cause not investigated (possibly
+  lost /checkpoints in HDFS).
+
 ## S4: Cleaning (F4), planned
 
 Scope:
@@ -289,3 +297,216 @@ all Danish waters.
 
 Depends on: the DMA import (Kafka Connect FilePulse and the ksqlDB split) running, and the group
 agreeing where the area filter belongs.
+
+## R1: the October Esbjerg waiting analysis in Spark (done, not committed)
+
+A second, independent implementation of the October pandas analysis (`check_datasets.py`:
+`load_port_class_a`, `port_waiting`; `year_analysis.py`: the large-ship rule; `make_figures.py`:
+the ETA table), on the same 84 days (`year_comparison.json["days"]`, days 8-14 of each month,
+2025-11 to 2026-10). Neither side was assumed correct; any difference was to be investigated per
+ship, and no rule was changed to get a match. Wind is out of scope.
+
+Added:
+- `spark/common/esbjerg_r1.py`: every rule, each citing its line in the October code
+  (`cd:` check_datasets.py, `ya:` year_analysis.py, `mf:` make_figures.py). DataFrame and window
+  functions only (lag, running sums for run ids, grouped aggregates), no UDFs
+- `spark/jobs/ingest_portarea.py` (R1a): `portarea_<day>.csv.gz` to
+  `/lake/standardized/ais_positions/source=portarea/day=<day>/`, explicit schema, rejects
+  (missing or unparsable ts/lat/lon, with `reject_reason`) to
+  `/lake/quarantine/ais_positions/source=portarea/`, manifest per day in
+  `/lake/standardized/_manifests/portarea/<run>/` (rows in, out, rejected by reason, Class A,
+  rows whose ts date is not the file day). For each selected day both output partitions are
+  deleted and rewritten, so a day whose new result is empty (no rejects any more) keeps no stale
+  rows; days that were not selected are left as they are
+- `spark/jobs/check_source_order.py`: SHA-256 of all 18 columns of every row in file order:
+  raw text (plain Python gzip + csv vs the Spark reader) and parsed values (a plain Python parse
+  vs the Spark parse vs the lake read back), all formatted the same way (null as `\N`)
+- `spark/jobs/esbjerg_arrivals.py` (R1b): `/lake/curated/esbjerg_arrivals`, `esbjerg_stops`,
+  `esbjerg_eta_at_entry`, and a stage-count manifest in `/lake/curated/_manifests/esbjerg_r1/`
+- `scripts/compare_r1.py` (R1c): event-level comparison (null-safe joins, keys checked unique on
+  both sides), the summary numbers side by side, the Nordby count, the first mismatches with a
+  track preview, `--inspect BLOCK:MMSI` for the full stop runs of one ship. Exits 0 only when
+  every event, field and summary comparison matches (and `year_comparison.json` on the 84-day
+  run), 1 otherwise, after printing all diagnostics
+- `spark/tests/test_esbjerg_r1.py`: 27 tests on hand-made tracks (the brief's list, plus the
+  500k-chunk thinning, moored share, null nav in the shares, ship-type mode, blocks, large ship,
+  ingest rejects, ETA from quarantined rows and arrivals without an ETA, a day going from
+  rejects to no rejects without stale rows)
+- `infra/compose.r1.yml`: mounts `PORTAREA_DIR` read-only at `/data/portarea` in the Spark
+  container, only for the `r1-*` targets; the normal stack does not need the folder
+- Makefile: `r1-up`, `r1-ingest`, `r1-order`, `r1-arrivals`, `r1-compare` (`R1_BLOCKS=0` for one
+  block); `PORTAREA_DIR=` in `.env.example`
+
+Run:
+
+```bash
+make r1-up PORTAREA_DIR=/Volumes/LaCie_SSD/big_data_datasets/code/data
+```
+
+```bash
+make r1-ingest r1-order r1-arrivals r1-compare PORTAREA_DIR=/Volumes/LaCie_SSD/big_data_datasets/code/data R1_DRIVER_MEMORY=4g
+```
+
+### The October rules, as ported
+
+| Rule | October line |
+|---|---|
+| Class A only (`mobile == "Class A"`, exact) | cd:1021 |
+| ts parsed with coerce; rows without ts, lat or lon dropped (here: quarantined) | cd:1024-1025 |
+| first row per (mmsi, minute) **within each 500,000-line pandas chunk** | cd:1019, 1026 |
+| stable sort by (mmsi, ts), first row per (mmsi, ts) | cd:1030-1031 |
+| day = ts date; consecutive days share a block (0-11) | cd:1050-1058, 1067-1069 |
+| harbour zone 55.440-55.490 N, 8.405-8.490 E, ends inclusive | cd:53, 108, 1070 |
+| ignored = inside NORDBY_ZONE and not in the harbour zone | cd:55, 1071-1074 |
+| ship type = mode over all loaded days, without null/"Undefined", ties alphabetical | cd:1075-1076 |
+| anchored = nav contains "anchor" (lower case); stationary = sog < 0.5 or anchored | cd:1077-1078 |
+| wait flag = stationary, outside the zone, not ignored | cd:1079 |
+| groups (block, mmsi) in ts order; skip if never inside or first row inside | cd:1082-1086 |
+| arrival = first in-zone row; only rows before it are looked at | cd:1087, 1092, 1095 |
+| run breaks on a flag change or a gap > 30 min (30 exactly does not) | cd:1081, 1094 |
+| stop counts if >= 30 min | cd:1097 |
+| stop >= 50 % "Moored" messages: counted as moored elsewhere, not a stop | cd:1100-1102 |
+| anchor stop if >= 10 % of its messages are anchored (share of messages) | cd:1099, 1110 |
+| large = Cargo/Tanker, or length (null as 0) >= 90 and not a service/passenger type | ya:37, cd:1004-1005 |
+| ETA: last Class A ETA message (raw rows) in [arrival - 3 d, arrival], large arrivals only | mf:231-247 |
+| ETA kept if \|arrival - ETA\| <= 7 days | mf:256-258 |
+
+"ETA reported at entry" is the last ETA a ship sent before it entered. It is not a forecast.
+
+### Parity decisions
+
+- **Source order.** Each file is read alone with `textFile` (gzip cannot be split, so one
+  partition), every raw line is numbered with `zipWithIndex` before parsing (index 0 is the
+  header, `line_no = index - 1`), and rows are parsed with `from_csv` so `line_no` stays
+  attached. `monotonically_increasing_id` is not used. Checked on two full days, see below
+- **Ties.** For equal (mmsi, ts) the first row in file order wins, as in pandas (its multi-column
+  sort is stable). After minute thinning no (mmsi, ts) tie is left, so in practice the rule is
+  "first row of each minute in file order"
+- **Chunks.** The pandas thinning runs inside each 500,000-line chunk. Spark carries
+  `chunk = line_no // 500000` and thins per chunk too. No day file has more than 500,000 lines,
+  so it changes nothing on this data; a test covers the boundary
+- **pandas NA strings.** pandas reads "NA", "None", "null", "n/a" and similar as missing; the
+  ingest does the same for string columns, so names and types match
+- **ETA input** includes quarantined rows (a row without lat/lon still carries its ETA), and every
+  large arrival is kept, with a null ETA when nothing matches. For equal ts with different ETAs
+  pandas' pick is undefined (single-column quicksort); Spark takes the last row in file order.
+  This case did not occur (0 large arrivals)
+- **Medians** use Spark's exact `percentile` (linear interpolation, as pandas)
+
+### Results (compose Spark container, 23 Nov)
+
+Source order, full files (`make r1-order`): SHA-256 over all 18 columns of every data row, in
+file order, each value formatted the same way on every side (null as `\N`, floats with Python
+`repr`, timestamps `yyyy-mm-dd HH:MM:SS`, fields joined by `\x1f`). Five sides per day: raw text
+from plain Python (gzip + csv) and from the Spark reader (textFile + zipWithIndex + from_csv);
+parsed values from a plain Python parse, from the Spark parse (`parse_lines`) and from the lake
+read back (standardized + quarantine). All five agree:
+
+| Day | Rows (each side) | SHA-256 (all five sides) |
+|---|---|---|
+| 2025-11-08 | 423,309 | `9b2aa9ba12406519c66d2c8554465a35f3a1346daa79e511d8426443b0ed665b` |
+| 2026-10-14 | 370,834 | `3437254f1b991c27bd41db984d2ebb38b6ad4c816ca5cf660e8debe3cfc8f3db` |
+
+Raw and parsed hashes are equal because pandas wrote these caches with ISO timestamps and
+`repr`-style floats, and neither day has a pandas NA string, so every value prints the same before
+and after parsing. (An earlier version hashed only `mmsi,ts`; it matched too.)
+
+Rows per stage:
+
+| Stage | Block 0 (7 days) | 84 days |
+|---|---|---|
+| rows in = standardized (0 rejected) | 3,313,891 | 31,919,529 |
+| Class A | 3,279,793 | 31,311,003 |
+| (mmsi, ts) duplicate rows (groups disagreeing on nav/sog) | 860,606 (1,600) | 7,766,403 (14,778) |
+| after minute thinning and dedupe | 524,638 | 5,171,358 |
+| (block, mmsi) groups / never enter / start inside | 155 / 7 / 84 | 1,619 / 106 / 966 |
+| arrivals / large | 64 / 35 | 547 / 335 |
+| stops (anchored) / moored elsewhere | 2 (2) / 0 | 52 (24) / 0 |
+| ETA rows / with ETA / kept <= 7 d | 35 / 35 / 34 | 335 / 335 / 317 |
+
+Runtimes (driver 4g, `local[*]`, OrbStack): block 0 ingest 47 s, arrivals 42 s, compare 13 s;
+84 days ingest 463 s (standardized 256 s, quarantine 152 s), arrivals 264 s (dedupe count 75 s,
+thinning 82 s, groups 15 s, arrivals 33 s, stops 24 s, ETA 15 s, write 16 s), compare 17 s,
+order check 19 s.
+
+Comparison, block 0 and all 84 days:
+
+| | Block 0 | 84 days |
+|---|---|---|
+| arrivals matched / only Spark / only October | 64 / 0 / 0 | 547 / 0 / 0 |
+| stops matched / only Spark / only October | 2 / 0 / 0 | 52 / 0 / 0 |
+| ETA matched / only Spark / only October | 35 / 0 / 0 | 335 / 0 / 0 |
+| field differences (any field, incl. cut_at_start, stop lat/lon, stop's arrival) | 0 | 0 |
+
+84-day summary, identical on both sides and to `year_comparison.json`: 547 arrivals, 335 large,
+24 large anchor waits (7.16 %), median wait 12.57 h, max 46.68 h, 12 waits of 12 h or more,
+2 censored at the block start, 0 moored stops elsewhere. The October "104 waits a year" is a
+naive extrapolation, 24 / 84 days x 365, under the R1 definitions (first entries, ships that
+start the block outside the port, anchor stops of 30+ min), not a measured total. ETA reported at
+entry: 317 kept (18 dropped by the 7-day rule), 75.7 % within 2 h, median absolute error 1.02 h,
+max 138.2 h.
+
+Nordby: 2 arrivals enter the zone inside the NORDBY_ZONE rectangle, both the same 8 m SAR boat
+(FRB-06), 0 large. The Fanoe ferries never count as arrivals: both their ends lie inside the
+zone, so every block starts with them inside and they are skipped.
+
+Negative control: the same comparison against a copy of the October CSVs with four planted
+changes (one wait +1 min, one arrival +1 s, one arrival deleted, one stop share -0.01) reports
+545 / 2 / 1 for arrivals, 1 difference in wait_min and anchor_wait_min, and 1 in anchored_share.
+So zero mismatches is a result, not a blind comparison. The clean run exits 0
+(`RESULT: PASS`); the negative control exits 1 with 8 failed checks listed.
+
+Tie definitions: after Class A filtering, a (mmsi, ts) group with more than one row is a tie
+group (7,291,630 groups, 7,766,403 surplus rows). It is "conflicting" when its rows differ in nav
+or sog: 14,778 groups when a missing value counts as a value of its own (the Spark count above),
+14,685 when missing values are ignored (a pandas `nunique` count, from the planning profile).
+Either way the first row of the minute in file order wins, on both sides.
+
+Learned on the way:
+- The compose stack can deadlock: with blocks already in the namenode volume (from S2), the
+  namenode stays in safe mode until a datanode reports, and the datanode waits for the namenode to
+  be healthy (that is, out of safe mode). Worked around by starting the datanode with
+  `--no-deps`; the healthcheck or the dependency needs a fix (for the owners, not changed here)
+- An empty quarantine (no rejects) has no Parquet files, so its schema cannot be inferred: the
+  lake tables are read with their explicit schema
+- Spark does not allow `count(DISTINCT …)` over a window; the ETA tie check compares min and max
+- OrbStack also starts the S3a Kubernetes rehearsal pods; with them running, the Spark driver got
+  4g
+
+### Decisions to review in R2
+
+These are choices in the October method, ported as they are. Some may well stay.
+
+- **Nordby overlap.** NORDBY_ZONE (lon 8.395-8.418) mostly lies inside the harbour zone
+  (lon from 8.405), and only "not in the zone" is ignored, so the ignore rule covers just the
+  strip lon 8.395-8.405. A ship docking at Nordby counts as entering Esbjerg. In the 84 days:
+  2 arrivals, both an 8 m SAR boat, 0 large
+- **Class A filter.** Class B and other transponders are dropped before anything else. Not in the
+  written method description
+- **Blocks from ts dates**, not from the file a row came from. On this data no row has a date
+  other than its file's, so it makes no difference here
+- **"anchor" substring** rather than exactly "At anchor". On this data only "At anchor" contains it
+- **Chunk-dependent thinning** (per 500,000 lines). No effect on these files, but a larger file
+  would thin differently depending on where the chunk boundary falls
+- **Ship type over all loaded days**: a run on fewer days can give a ship another type, so
+  results depend on the sample, not only on the block
+- **ETA ties**: undefined in pandas for equal ts; did not occur here
+- **Ships that start a block inside the port**: 966 of 1,619 (block, mmsi) groups are skipped
+  because the ship starts the block inside the port; together with first-entry-only, "547
+  arrivals" means first entries by ships that started the block outside the port
+- **Junk speeds** are not filtered (a SAR helicopter reports 102 kn); they never make a row
+  stationary, so they do not change stops
+
+## R2: method fixes, planned
+
+- **Repeat visits**: only the first entry per (block, mmsi) is counted, so a ship that calls twice
+  in a week, or leaves and waits again, is one arrival
+- **ETA at a fixed lead time**: compare the ETA a ship reported a fixed time before entry (for
+  example 24 h and 6 h), instead of the last one before entry, which is close to the answer
+- The decisions above, each with the change in numbers before and after
+
+## R3: fresh full DMA days, planned
+
+Download full DMA day files and cut them to the Esbjerg box in Spark (replacing the pandas
+`scan_dma_ports` step that made the portarea caches), then run R1a-R1c on them and compare with
+the cache-based run.
