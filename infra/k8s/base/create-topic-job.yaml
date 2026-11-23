@@ -1,0 +1,85 @@
+# One-off Job that creates topics on the single-broker Kafka from this repo.
+# Safe to re-run: --if-not-exists makes creation a no-op for topics that already exist.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-create-topics
+spec:
+  backoffLimit: 3 # retry the pod up to 3 times if the script fails
+  ttlSecondsAfterFinished: 3600 # delete the finished Job after an hour (lets you re-apply later)
+  template:
+    metadata:
+      labels:
+        app: kafka-create-topics # deliberately NOT app.kubernetes.io/name: kafka (see Service selector)
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false # same reason as the StatefulSet: avoid injected KAFKA_* variables
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: create-topics
+          image: confluentinc/cp-kafka:8.4.0 # same image as the broker, so the CLI matches its version
+          env:
+            - name: KAFKA_HEAP_OPTS
+              value: -Xms64m -Xmx256m # the CLI needs far less than a broker
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -eu
+              BOOTSTRAP=kafka:9092
+
+              echo "Waiting for the broker at ${BOOTSTRAP}..."
+              for i in $(seq 1 30); do
+                if kafka-topics --bootstrap-server "${BOOTSTRAP}" --list >/dev/null 2>&1; then
+                  echo "Broker is up."
+                  break
+                fi
+                echo "  attempt ${i}/30 failed, retrying in 5s"
+                sleep 5
+              done
+
+              # create_topic <name> <partitions> [extra kafka-topics options...]
+              # Replication factor is fixed at 1 because there is only one broker.
+              create_topic() {
+                name="$1"
+                partitions="$2"
+                shift 2
+                echo "Creating topic ${name} (${partitions} partitions)"
+                kafka-topics --bootstrap-server "${BOOTSTRAP}" \
+                  --create --if-not-exists \
+                  --topic "${name}" \
+                  --partitions "${partitions}" \
+                  --replication-factor 1 \
+                  "$@"
+              }
+
+              # --- Topics: one line each. Add or remove lines here. ---
+              create_topic ais.position 3
+              create_topic ais.static 3
+              create_topic ais.history.raw 3
+              create_topic ais.history.position 3
+              create_topic ais.history.static 3
+              create_topic weather.forecast 1
+              create_topic weather.observation 1
+              create_topic ship.prediction 3
+              create_topic port.outlook 1
+              create_topic alerts 1
+              create_topic analytics.weather_delay 1
+              create_topic eval.metrics 1
+
+              echo "Resulting topics:"
+              kafka-topics --bootstrap-server "${BOOTSTRAP}" --list
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
