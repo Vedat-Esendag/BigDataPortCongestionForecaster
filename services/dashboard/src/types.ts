@@ -24,6 +24,8 @@ export interface Ship {
   lat: number | null;
   lon: number | null;
   event_time: string;
+  /** When Spark produced this prediction: use it to show how old the numbers are. */
+  processing_time?: string | null;
 }
 
 export interface OutlookSlot {
@@ -41,8 +43,13 @@ export interface Outlook {
   slots: OutlookSlot[];
 }
 
-/** Messages pushed over /ws. TODO(F10): the server only sends "hello" so far. */
+/**
+ * Messages pushed over /ws (services/api/src/api/routes/ws.py). Until the client sends
+ * {"type": "subscribe", "port": "<id>"}, it receives changes for every port.
+ */
 export type LiveMessage =
   | { type: "hello"; ports: string[] }
   | { type: "ship"; ship: Ship }
-  | { type: "outlook"; port: string; slot: OutlookSlot };
+  | { type: "outlook"; port: string; slot: OutlookSlot }
+  | { type: "subscribed"; port: string | null }
+  | { type: "error"; detail: string };

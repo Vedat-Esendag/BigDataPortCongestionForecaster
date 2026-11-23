@@ -1,9 +1,14 @@
-# Cassandra, one node, empty: no keyspaces or tables, and no persistent volume yet (data is lost
-# when the pod restarts). Image tag repeats CASSANDRA_VERSION in versions.env.
+# Cassandra, one node: the history of predictions, outlooks and analytics (docs/storage.md).
+# Data is kept in the volume claim data-cassandra-0, so it survives a pod restart. The keyspace
+# and tables are created by the cassandra-init Job (schema-job.yaml).
+# Image tag repeats CASSANDRA_VERSION in versions.env.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: cassandra
+  labels:
+    app.kubernetes.io/name: cassandra
+    app.kubernetes.io/component: database
 spec:
   serviceName: cassandra
   replicas: 1
@@ -14,14 +19,22 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: cassandra
+        app.kubernetes.io/component: database
     spec:
       automountServiceAccountToken: false # nothing here talks to the Kubernetes API
       enableServiceLinks: false
+      # Time for the preStop drain below. A drain on an idle node takes a few seconds.
+      terminationGracePeriodSeconds: 90
       securityContext:
         # The image starts as root and then switches to `cassandra`; start as it directly.
         runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 999
+        # Make the volume writable for the cassandra user. Some storage types ignore this (the
+        # hostpath ones create folders anyone can write to, so it isn't needed there). If the
+        # pod logs "Permission denied" on /var/lib/cassandra, this is where to look.
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: cassandra
           image: cassandra:5.0.9
@@ -37,6 +50,17 @@ spec:
           ports:
             - containerPort: 9042
               name: cql
+          volumeMounts:
+            # Everything Cassandra stores: tables (data/), the commit log, saved caches.
+            - name: data
+              mountPath: /var/lib/cassandra
+          lifecycle:
+            preStop:
+              exec:
+                # Before the pod stops, write everything still in memory to disk and stop taking
+                # writes. Cassandra would also recover from its commit log without this, but a
+                # drained node starts faster and cleaner.
+                command: ["nodetool", "drain"]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -58,3 +82,17 @@ spec:
             limits:
               cpu: "2" # shared node: cap us so we cannot starve other groups
               memory: 3Gi
+  # One claim per pod, named data-cassandra-<n>. Kubernetes keeps the claim (and the data) when
+  # the pod or even the StatefulSet is deleted. Only deleting the claim itself removes the data.
+  # No storageClassName here: the school overlay sets it. Locally the cluster default is used.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: cassandra
+          app.kubernetes.io/component: database
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi # a busy day of predictions is tens of MB; this leaves months of room

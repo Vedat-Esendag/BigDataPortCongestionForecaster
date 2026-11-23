@@ -3,9 +3,11 @@
 The base services of the project on the university's shared Kubernetes cluster, in our
 namespace `bd-gr-05`. To get access first, follow [cluster/cluster_setup.md](cluster/cluster_setup.md).
 
-This is a starting point: every service starts and answers, but nothing is set up for the
-project yet. There are no topics, schemas, HDFS folders, keyspaces or tables, and no persistent
-storage, so every service loses its data when its pod restarts.
+This is a starting point: every service starts and answers, but most of them aren't set up for
+the project yet. Redis and Cassandra are done: they keep their data on persistent volumes, and
+the Cassandra keyspace and tables are created on every deploy (see
+[docs/storage.md](../../docs/storage.md)). Kafka and HDFS don't have topics, schemas, folders
+or persistent storage yet, so they lose their data when their pod restarts.
 
 ## Start, check, update
 
@@ -23,7 +25,10 @@ To update while things are running, don't stop anything: change the files, then
 `make k8s-diff` and `make k8s-apply` again.
 
 - New objects are created, unchanged ones are left alone.
-- A changed service gets a fresh pod, which starts empty again (no persistent storage yet).
+- A changed service gets a fresh pod. Redis and Cassandra keep their data across that; the
+  other services start empty again (no persistent storage for them yet).
+- The Cassandra schema Job (`cassandra-init`) shows up as new in every diff. That is expected:
+  it removes itself five minutes after it finishes, and running it again changes nothing.
 - A file you remove from the setup is **not** removed from the cluster. Delete its objects first
   (`kubectl delete -k` on its folder, or `kubectl delete <kind> <name>`), then take it out.
 
@@ -53,9 +58,10 @@ then run `kubectl kustomize infra/k8s/overlays/school` to see the result.
 | `kafka` | StatefulSet, 1 broker (KRaft) | `kafka:9092` |
 | `schema-registry` | Deployment | `http://schema-registry:8081` |
 | `ksqldb` | Deployment | `http://ksqldb:8088` |
-| `redis` | Deployment | `redis:6379` |
+| `redis` | Deployment, volume `data-redis`, AOF and keyspace events on | `redis:6379` |
 | `hdfs-namenode`, `hdfs-datanode` | StatefulSets, headless Services | `hdfs://hdfs-namenode:8020`, web UI on 9870 |
-| `cassandra` | StatefulSet, 1 node | `cassandra:9042` |
+| `cassandra` | StatefulSet, 1 node, volume `data-cassandra-0` | `cassandra:9042` |
+| `cassandra-init` | Job, runs `cassandra/schema.cql` | removes itself 5 minutes after finishing |
 | `pf-config` | ConfigMap, empty | shared settings, filled in later |
 | `spark` | ServiceAccount, Role, RoleBinding | lets Spark drivers start executor pods |
 
@@ -85,6 +91,11 @@ skips any key that's empty in `.env`. Run it again after changing a key.
 ```bash
 kubectl delete -k infra/k8s/overlays/school
 ```
+
+This also deletes the Redis volume claim, so Redis starts empty next time. Cassandra's claim
+(`data-cassandra-0`) is kept: Kubernetes never deletes claims that a StatefulSet created. To
+restart one service without losing its data, delete only its pod
+(`kubectl delete pod cassandra-0`, `kubectl rollout restart deploy/redis`).
 
 ## Moving from the first version (once)
 

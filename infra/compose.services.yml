@@ -1,3 +1,7 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json
+# (Tells the editor this is a Compose file. Its name doesn't match the usual compose*.yml
+# pattern, so without this line VS Code checks it against the wrong schema and shows errors.)
+#
 # All services, grouped by profile:
 #   core        Kafka (KRaft), Schema Registry, Kafka Connect, Redpanda Console
 #   storage     Cassandra, Redis, HDFS (namenode + datanode)
@@ -179,13 +183,14 @@ services:
     image: redis:${REDIS_VERSION}
     profiles: [storage]
     hostname: redis
-    # KA = keyspace events for all commands. The Redis sink cannot PUBLISH, so the API listens to
-    # these events to know when a ship or port key changed. Redis 8 bundles the JSON type.
-    command: ["redis-server", "--appendonly", "yes", "--notify-keyspace-events", "KA"]
+    # Same settings file as on Kubernetes: AOF persistence, keyspace events for the API's live
+    # push, memory cap. Each setting is explained in that file.
+    command: ["redis-server", "/etc/redis/redis.conf"]
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
+      - ./k8s/base/redis/redis.conf:/etc/redis/redis.conf:ro
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

@@ -1,10 +1,16 @@
-"""Response models. They are the contract with the dashboard (services/dashboard/src/types.ts)."""
+"""Response models. They are the contract with the dashboard (services/dashboard/src/types.ts).
+
+The same models read both stores: Redis documents (JSON written by the Redis sink, timestamps
+as epoch milliseconds) and Cassandra rows (timestamps as datetimes). Pydantic accepts both.
+Extra fields, such as `day`, are ignored.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class PortInfo(BaseModel):
@@ -19,7 +25,7 @@ class PortInfo(BaseModel):
 
 
 class Ship(BaseModel):
-    """Latest prediction for one ship (the ship.prediction topic)."""
+    """One prediction for one ship (the ship.prediction topic)."""
 
     mmsi: int
     port: str
@@ -32,6 +38,15 @@ class Ship(BaseModel):
     lat: float | None
     lon: float | None
     event_time: datetime
+    # When Spark produced this prediction. The dashboard uses it to show how old the numbers
+    # are. Optional so that older records without it still load.
+    processing_time: datetime | None = None
+
+    @field_validator("reason_codes", mode="before")
+    @classmethod
+    def _empty_list_for_null(cls, value: Any) -> Any:
+        # Cassandra stores an empty list as null, so a ship with no reasons comes back as None.
+        return [] if value is None else value
 
 
 class OutlookSlot(BaseModel):
