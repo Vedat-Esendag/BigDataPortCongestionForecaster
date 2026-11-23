@@ -236,14 +236,42 @@ Verified on OrbStack (16 and 17 Nov):
   Rerun from `school/one-off` with the recorders scaled to 0: `rows 20`, and the recorders then
   continued at batch 3
 
+Re-run on OrbStack (23 Nov, after merging `origin/main`, commit `20974d6`):
+- Image `spark-jobs:20974d6` (clean tree, `linux/amd64` and `linux/arm64`), tagged
+  `spark-jobs:rehearsal`
+- Fresh setup first (see the root cause below): topics `ais.position` and `ais.static` with 3
+  partitions, 12 schemas registered, `/lake/raw` and `/checkpoints` owned by `spark`
+- Smoke job: 1 driver and 2 executor pods, driver `Succeeded`, `rows 20`, `executors 2`
+- Recorders: 1 driver and 1 executor pod each, 0 restarts. After `send-fixtures` (20 and 6),
+  `lake-check`: 20 and 6 rows, duplicates 0, gaps 0 in every partition
+- Restart test: `kafka-to-lake-ais-position-0` deleted at 10:56:11; the new driver pod ran at
+  10:56:15 and its executor at 10:56:19. It logged `Resuming at batch 2` with committed offsets
+  `{"0":8,"1":4,"2":8}`, under the same query id. The old executor went with the old driver pod
+- Second send: 40 and 12 rows (16 / 8 / 16 per partition), every (partition, offset) once, gaps 0.
+  `hdfs fsck /lake`: HEALTHY, 0 under-replicated, missing or corrupt blocks
+- Afterwards both recorders were scaled to 0 (see the root cause)
+
+Root cause of the crash-loop found before the re-run: the HDFS and Kafka pods in the OrbStack
+rehearsal have no persistent volumes, so an OrbStack restart wipes HDFS (`/lake`,
+`/checkpoints`) and the Kafka topics. Here HDFS went down with OrbStack on 21 Nov and came back
+empty on 23 Nov. Each recorder then starts as user `spark`, cannot create
+`/checkpoints/kafka_to_lake/<topic>` (`Permission denied: user=spark, access=WRITE,
+inode="/":hadoop:supergroup:drwxr-xr-x`), and exits; the StatefulSet restarts it (22 times
+each). It is fixed by persistent volumes (Ahmed's PVCs on `HDFS_Ahmed`). Until those are
+merged, after any OrbStack restart redo step 3 of the rehearsal README (topics, schemas, HDFS
+folders) before starting the recorders, or keep them scaled to 0.
+
 Learned on the way:
 - Without persistent storage, a restart of the cluster (here OrbStack, during a pause) wipes
   Kafka's topics and HDFS. The recorders then crash-loop with `Permission denied ... inode="/"`
   (the `/checkpoints` folder is gone) instead of writing elsewhere, and recover once the folders
   exist again. On the school cluster the same happens when the HDFS pods restart
 - When a client-mode driver stops, Spark tries to delete services by label and gets
-  `services is forbidden` (the `spark` Role has no `deletecollection`, on purpose). Harmless:
-  the executor pods and their ConfigMaps are owned by the driver pod and are removed with it
+  `services is forbidden` (the `spark` Role has no `deletecollection`, on purpose). Harmless
+  when the driver pod is deleted: the executor pods and their ConfigMaps are owned by it and go
+  with it. Not in a crash-loop: the container restarts inside the same pod, so each attempt
+  leaves a `Completed` executor pod (46 by 23 Nov). Deleting or scaling down the driver pod
+  removes them
 - The S1b `smoke-count` Job in `overlays/local` has the same name as the school one; delete the
   old Job before running the rehearsal in the same namespace
 
@@ -267,8 +295,8 @@ recorder's checkpoint, the recorder stops with a data-loss error instead of skip
 
 Open issues (local OrbStack rehearsal):
 - OrbStack rehearsal recorders (kafka-to-lake-ais-position-0 / -ais-static-0) crash-loop after
-  OrbStack restart, 13 restarts, about 30 leftover exec pods; cause not investigated (possibly
-  lost /checkpoints in HDFS).
+  OrbStack restart. Cause found on 23 Nov: no persistent volumes, so HDFS and the topics are
+  wiped (see the S3a re-run above). Open until Ahmed's PVCs are merged; recorders scaled to 0
 
 ## S4: Cleaning (F4), planned
 
