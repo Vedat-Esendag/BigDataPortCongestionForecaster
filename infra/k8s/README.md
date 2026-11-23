@@ -82,6 +82,30 @@ REST APIs, Redis, Cassandra and the HDFS web UI, but not for Kafka or HDFS file 
 
 Image tags repeat `versions.env`; change both together.
 
+## Images
+
+Our own images go to `ghcr.io/vedat-esendag` as public packages, so the school node pulls them
+without a pull secret. All five use the same tag, the short git commit:
+
+| Image | Built from (context) | Used by |
+|---|---|---|
+| `spark-jobs` | `spark/Dockerfile` (repo root) | `spark/school` (recorders, one-off Jobs) |
+| `pf/ais-producer` | `services/ais-producer/Dockerfile` (repo root) | `apps/ais-producer` |
+| `pf/kafka-connect` | `connect/Dockerfile` (`connect/`) | `apps/connect` |
+| `pf/api` | `services/api/Dockerfile` (repo root) | no manifest yet |
+| `pf/dashboard` | `services/dashboard/Dockerfile` (`services/dashboard/`) | no manifest yet |
+
+```bash
+make images-build   # linux/amd64 into local Docker, no push
+make images-push    # linux/amd64, pushed as ghcr.io/vedat-esendag/<image>:<sha>
+```
+
+The build args come from `versions.env`, the same as in docker compose. `images-push` refuses
+a tree with uncommitted or untracked files, so a tag always names a pushed commit. `IMAGES=` picks
+a subset, for example `make images-push IMAGES=pf/ais-producer`; `REGISTRY=` changes the
+registry. You need `docker login ghcr.io` first, and a new package must be made public once on
+GitHub.
+
 ## Secrets
 
 Keys (aisstream.io, DMI, the alert webhook) go in `.env`, never in a manifest. Then:

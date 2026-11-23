@@ -17,7 +17,7 @@ endif
 JAVA_MAJOR := $(call java_major,$(JAVA_HOME))
 
 .PHONY: help up up-core down down-volumes topics schemas connectors test lint fmt \
-        compose-config run-producer spark-package spark-live spark-lake spark-image dashboard-build download-dma clean \
+        compose-config run-producer spark-package spark-live spark-lake spark-image spark-push images-push images-build dashboard-build download-dma clean \
         k8s-diff k8s-apply k8s-check k8s-up k8s-secrets k8s-test-hdfs k8s-hdfs-report \
         local-up local-down local-check \
         r1-package r1-up r1-ingest r1-order r1-arrivals r1-compare
@@ -165,21 +165,79 @@ r1-compare: r1-package ## R1c: event-level comparison with the October output
 	$(R1_SUBMIT) /opt/app/scripts/compare_r1.py $(R1_BLOCK_ARGS) $(R1_COMPARE_ARGS)
 
 # The Spark image for Kubernetes (infra/k8s/spark), for both node types: amd64 (school) and arm64
-# (Apple Silicon). Tagged with the commit; "-dirty" when the tree has uncommitted changes, so a
-# tag never claims to be a commit it is not. Loaded into the local Docker only, never pushed.
+# (Apple Silicon). Tagged with the commit; "-dirty" when the tree has uncommitted or untracked
+# files, so a tag never claims to be a commit it is not. spark-image loads it into the local
+# Docker only; spark-push builds the amd64 variant and pushes it to $(SPARK_REGISTRY).
 SPARK_JOBS_IMAGE := spark-jobs
 SPARK_JOBS_TAG = $(shell git rev-parse --short HEAD)$(shell [ -n "$$(git status --porcelain)" ] && echo -dirty)
 SPARK_PLATFORMS ?= linux/amd64,linux/arm64
+REGISTRY ?= ghcr.io/vedat-esendag
+SPARK_REGISTRY ?= $(REGISTRY)
+SPARK_BUILD_ARGS = \
+		--build-arg SPARK_IMAGE_TAG=$(SPARK_IMAGE_TAG) \
+		--build-arg SPARK_KAFKA_PACKAGE=$(SPARK_KAFKA_PACKAGE) \
+		--build-arg SPARK_AVRO_PACKAGE=$(SPARK_AVRO_PACKAGE)
 
 spark-image: ## Build spark-jobs:<git sha> for amd64 and arm64 into local Docker (no push)
 	@tag="$(SPARK_JOBS_TAG)"; \
 	case "$$tag" in *-dirty) echo "warning: uncommitted changes, tagging $(SPARK_JOBS_IMAGE):$$tag";; esac; \
 	docker buildx build --platform $(SPARK_PLATFORMS) --load \
-		--build-arg SPARK_IMAGE_TAG=$(SPARK_IMAGE_TAG) \
-		--build-arg SPARK_KAFKA_PACKAGE=$(SPARK_KAFKA_PACKAGE) \
-		--build-arg SPARK_AVRO_PACKAGE=$(SPARK_AVRO_PACKAGE) \
+		$(SPARK_BUILD_ARGS) \
 		-f spark/Dockerfile -t $(SPARK_JOBS_IMAGE):$$tag . && \
 	echo "built $(SPARK_JOBS_IMAGE):$$tag ($(SPARK_PLATFORMS))"
+
+# Only linux/amd64: the school node. Refuses a dirty tree, so a public tag always names a commit.
+# Needs `docker login ghcr.io` first; the package must be made public once on GitHub.
+spark-push: ## Build spark-jobs:<git sha> for linux/amd64, push to SPARK_REGISTRY (clean tree only)
+	@tag="$(SPARK_JOBS_TAG)"; \
+	case "$$tag" in *-dirty) echo "error: uncommitted or untracked files (git status); commit or move them, then push again" >&2; exit 1;; esac; \
+	docker buildx build --platform linux/amd64 --push \
+		$(SPARK_BUILD_ARGS) \
+		-f spark/Dockerfile -t $(SPARK_REGISTRY)/$(SPARK_JOBS_IMAGE):$$tag . && \
+	echo "pushed $(SPARK_REGISTRY)/$(SPARK_JOBS_IMAGE):$$tag (linux/amd64)"
+
+# All our images for the school cluster (one amd64 node), each pushed as $(REGISTRY)/<name>:<git
+# sha>, the same tag for all. Build args and contexts are the ones docker compose uses
+# (infra/compose.services.yml) and local-up.sh uses, from versions.env. Pick a subset with
+# IMAGES=, for example: make images-push IMAGES="spark-jobs pf/ais-producer"
+IMAGES ?= spark-jobs pf/ais-producer pf/kafka-connect pf/api pf/dashboard
+PRODUCER_BUILD_ARGS = \
+		--build-arg PYTHON_VERSION=$(PYTHON_VERSION) \
+		--build-arg UV_VERSION=$(UV_VERSION)
+CONNECT_BUILD_ARGS = \
+		--build-arg CP_VERSION=$(CP_VERSION) \
+		--build-arg FILEPULSE_VERSION=$(FILEPULSE_VERSION) \
+		--build-arg CAMEL_HTTP_SOURCE_VERSION=$(CAMEL_HTTP_SOURCE_VERSION) \
+		--build-arg HDFS_SINK_VERSION=$(HDFS_SINK_VERSION) \
+		--build-arg CASSANDRA_SINK_VERSION=$(CASSANDRA_SINK_VERSION) \
+		--build-arg REDIS_SINK_VERSION=$(REDIS_SINK_VERSION) \
+		--build-arg LENSES_HTTP_SINK_VERSION=$(LENSES_HTTP_SINK_VERSION)
+API_BUILD_ARGS = \
+		--build-arg PYTHON_VERSION=$(PYTHON_VERSION) \
+		--build-arg UV_VERSION=$(UV_VERSION)
+DASHBOARD_BUILD_ARGS = \
+		--build-arg NODE_VERSION=$(NODE_VERSION)
+# Per image: build args, Dockerfile and build context.
+IMAGE_BUILD_spark-jobs       = $(SPARK_BUILD_ARGS) -f spark/Dockerfile .
+IMAGE_BUILD_pf/ais-producer  = $(PRODUCER_BUILD_ARGS) -f services/ais-producer/Dockerfile .
+IMAGE_BUILD_pf/kafka-connect = $(CONNECT_BUILD_ARGS) -f connect/Dockerfile connect
+IMAGE_BUILD_pf/api           = $(API_BUILD_ARGS) -f services/api/Dockerfile .
+IMAGE_BUILD_pf/dashboard     = $(DASHBOARD_BUILD_ARGS) -f services/dashboard/Dockerfile services/dashboard
+image_build = $(if $(IMAGE_BUILD_$(1)),$(IMAGE_BUILD_$(1)),$(error unknown image "$(1)"; known: spark-jobs pf/ais-producer pf/kafka-connect pf/api pf/dashboard))
+
+images-push: ## Build IMAGES for linux/amd64, push each to REGISTRY with the git sha (clean tree only)
+	@tag="$(SPARK_JOBS_TAG)"; \
+	case "$$tag" in *-dirty) echo "error: uncommitted or untracked files (git status); commit or move them, then push again" >&2; exit 1;; esac; \
+	$(foreach i,$(IMAGES),echo "== $(REGISTRY)/$(i):$$tag"; \
+	docker buildx build --platform linux/amd64 --push $(call image_build,$(i)) -t $(REGISTRY)/$(i):$$tag || exit 1; \
+	echo "pushed $(REGISTRY)/$(i):$$tag (linux/amd64)"; ) \
+	echo "done: $(IMAGES) at $$tag"
+
+images-build: ## Build IMAGES for linux/amd64 into local Docker as <name>:<git sha>-amd64 (no push)
+	@tag="$(SPARK_JOBS_TAG)-amd64"; \
+	$(foreach i,$(IMAGES),echo "== $(i):$$tag"; \
+	docker buildx build --platform linux/amd64 --load $(call image_build,$(i)) -t $(i):$$tag || exit 1; ) \
+	echo "built $(IMAGES) at $$tag"
 
 dashboard-build: ## Type-check and build the dashboard
 	cd services/dashboard && npm ci && npm run build
