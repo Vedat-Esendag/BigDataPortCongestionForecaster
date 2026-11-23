@@ -61,12 +61,21 @@ spec:
               }
 
               # --- Topics: one line each. Add or remove lines here. ---
-              create_topic Test 1
-              create_topic Test-2 3 --config retention.ms=86400000   # 3 partitions, keep data 1 day
+              create_topic ais.position 3
+              create_topic ais.static 3
+              create_topic ais.history.raw 3
+              create_topic ais.history.position 3
+              create_topic ais.history.static 3
+              create_topic weather.forecast 1
+              create_topic weather.observation 1
+              create_topic ship.prediction 3
+              create_topic port.outlook 1
+              create_topic alerts 1
+              create_topic analytics.weather_delay 1
+              create_topic eval.metrics 1
 
               echo "Resulting topics:"
-              kafka-topics --bootstrap-server "${BOOTSTRAP}" --describe --topic Test
-              kafka-topics --bootstrap-server "${BOOTSTRAP}" --describe --topic Test-2
+              kafka-topics --bootstrap-server "${BOOTSTRAP}" --list
           resources:
             requests:
               cpu: 100m
