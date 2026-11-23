@@ -1,0 +1,48 @@
+# Test sender: scripts/send_ais_fixtures.py as a one-off pod, because Kafka cannot be reached
+# from a laptop. Sends the 20 rows of ais_sample.csv to ais.position and the 6 rows of
+# ais_static_sample.csv to ais.static, as Confluent-framed Avro. The schemas must already be
+# registered; the script never registers anything. Uses the Spark image, which has the
+# fixtures, the .avsc files and confluent-kafka.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: send-fixtures
+  labels:
+    one-off: send-fixtures
+spec:
+  backoffLimit: 0 # a retry would send the fixtures twice
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        one-off: send-fixtures
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      containers:
+        - name: send
+          image: spark-jobs
+          command: [python3, /opt/app/scripts/send_ais_fixtures.py]
+          args:
+            - --bootstrap
+            - $(KAFKA_BOOTSTRAP_SERVERS)
+            - --registry
+            - $(SCHEMA_REGISTRY_URL)
+          envFrom:
+            - configMapRef:
+                name: spark-school-env
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]

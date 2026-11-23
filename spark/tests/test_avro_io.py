@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from pyspark.sql import functions as F
 
 from common.avro_io import decode_confluent_avro, encode_confluent_avro, field_names, load_avsc
 
 SCHEMA_ID = 42
-EVENT = datetime(2026, 10, 1, 8, 0, 0, tzinfo=UTC)
-ETA = datetime(2026, 10, 2, 12, 30, 0, tzinfo=UTC)
+EVENT = datetime(2026, 10, 1, 8, 0, 0, tzinfo=timezone.utc)
+ETA = datetime(2026, 10, 2, 12, 30, 0, tzinfo=timezone.utc)
 
 
 def _prediction_row(spark):
@@ -60,6 +60,6 @@ def test_encode_then_decode_returns_the_same_record(spark):
     assert [name for name in field_names(avsc) if name not in row.asDict()] == []
     assert row.mmsi == 219000001
     assert row.port == "dkebj"
-    assert row.predicted_eta.replace(tzinfo=UTC) == ETA
+    assert row.predicted_eta.replace(tzinfo=timezone.utc) == ETA
     assert row.reason_codes == ["dummy_predictor"]
     assert row.lat == 56.15

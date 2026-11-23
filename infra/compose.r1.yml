@@ -1,0 +1,13 @@
+# R1 only (docs/spark-milestones.md): mounts the folder with the October portarea_<day>.csv.gz
+# caches, year_comparison.json and year/ into the Spark container, read-only. Used by the r1-*
+# make targets on top of docker-compose.yml, so the normal stack never needs the folder:
+#   make r1-up PORTAREA_DIR=/path/to/code/data
+services:
+  spark:
+    volumes:
+      - type: bind
+        source: ${PORTAREA_DIR:?set PORTAREA_DIR to the folder with portarea_<day>.csv.gz}
+        target: /data/portarea
+        read_only: true
+        bind:
+          create_host_path: false

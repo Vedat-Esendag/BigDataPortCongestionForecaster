@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 VERSION_PREFIX = "v="
 _TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
@@ -18,8 +18,8 @@ _VERSION_PATTERN = re.compile(rf"^{re.escape(VERSION_PREFIX)}\d{{8}}T\d{{6}}Z$")
 def version_dir_name(moment: datetime) -> str:
     """Folder name for a model trained at `moment` (naive datetimes are taken as UTC)."""
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
-    return VERSION_PREFIX + moment.astimezone(UTC).strftime(_TIMESTAMP_FORMAT)
+        moment = moment.replace(tzinfo=timezone.utc)
+    return VERSION_PREFIX + moment.astimezone(timezone.utc).strftime(_TIMESTAMP_FORMAT)
 
 
 def is_version_dir(name: str) -> bool:

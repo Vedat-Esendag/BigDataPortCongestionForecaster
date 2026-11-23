@@ -1,0 +1,57 @@
+# Spark's built-in SparkPi example. The driver log ends with "Pi is roughly 3.14...".
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spark-pi
+  labels:
+    spark-job: spark-pi
+spec:
+  backoffLimit: 0 # a failed submit must not start more drivers
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        spark-job: spark-pi
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      securityContext: # the image says USER spark by name; Kubernetes needs the number
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      containers:
+        - name: submit
+          image: spark-image
+          imagePullPolicy: Never
+          command: [/opt/spark/bin/spark-submit]
+          args:
+            - --name
+            - spark-pi
+            - --class
+            - org.apache.spark.examples.SparkPi
+            - --conf
+            - spark.kubernetes.driver.label.spark-job=spark-pi
+            - --conf
+            - spark.kubernetes.executor.label.spark-job=spark-pi
+            - local:///opt/spark/examples/jars/spark-examples_2.13-4.2.0.jar
+            - "20"
+          env:
+            - name: SPARK_CONF_DIR
+              value: /opt/spark/conf-local
+          volumeMounts:
+            - name: spark-conf
+              mountPath: /opt/spark/conf-local
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: spark-conf
+          configMap:
+            name: spark-local-conf

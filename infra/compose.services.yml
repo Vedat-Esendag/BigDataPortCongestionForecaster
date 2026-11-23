@@ -55,7 +55,8 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 >/dev/null 2>&1"]
+      # kafka:29092, not localhost:29092: that listener is bound to the kafka hostname only
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:29092 >/dev/null 2>&1"]
       interval: 10s
       timeout: 10s
       retries: 12
@@ -211,7 +212,9 @@ services:
     environment:
       ENSURE_NAMENODE_DIR: /hadoop/dfs/name # formats the namenode on first start
     volumes:
-      - namenode-data:/hadoop/dfs/name
+      # Mounted one level up: the image formats only when /hadoop/dfs/name does not exist yet,
+      # and a volume mounted on that path always exists, so it would never be formatted.
+      - namenode-data:/hadoop/dfs
     healthcheck:
       test: ["CMD-SHELL", "hdfs dfsadmin -safemode get | grep -q OFF"]
       interval: 15s
@@ -266,6 +269,8 @@ services:
       dockerfile: spark/Dockerfile
       args:
         SPARK_IMAGE_TAG: ${SPARK_IMAGE_TAG}
+        SPARK_KAFKA_PACKAGE: ${SPARK_KAFKA_PACKAGE}
+        SPARK_AVRO_PACKAGE: ${SPARK_AVRO_PACKAGE}
     image: portcongestion/spark:${SPARK_VERSION}
     profiles: [apps]
     depends_on:
