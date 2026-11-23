@@ -1,0 +1,14 @@
+# Disk for the Redis append-only file, mounted at /data. A Deployment cannot create its own
+# volume claim the way a StatefulSet does, so the claim is a separate object. It is named
+# data-redis to match the data-<statefulset>-<n> claims of the other stores.
+#
+# No storageClassName here: the school overlay sets it. Locally the cluster default is used.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-redis
+spec:
+  accessModes: [ReadWriteOnce] # one pod at a time, which is why the Deployment uses Recreate
+  resources:
+    requests:
+      storage: 1Gi # the AOF of a few thousand small JSON documents stays in the megabytes

@@ -10,4 +10,14 @@ labels:
 
 resources:
   - service.yaml
+  - pvc.yaml
   - deployment.yaml
+
+# The ConfigMap is built from redis.conf. Kustomize adds a hash of the file to its name
+# (redis-config-<hash>) and updates the Deployment to match, so editing redis.conf and
+# deploying restarts Redis with the new settings. Without the hash, Redis would keep running
+# with the old ones until someone restarted it by hand.
+configMapGenerator:
+  - name: redis-config
+    files:
+      - redis.conf
