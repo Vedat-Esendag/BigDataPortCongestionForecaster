@@ -7,7 +7,11 @@ cd "$(dirname "$0")/../.."
 source infra/k8s/cluster/env.sh >/dev/null || exit 1
 
 echo "Waiting up to 5 minutes for every pod to be ready..."
-kubectl wait pod -l app.kubernetes.io/part-of=port-forecaster --for=condition=Ready --timeout=300s >/dev/null ||
+# Pods of finished Jobs (cassandra-init) never become Ready, so they are left out of the wait.
+# Whether such a Job did its work is checked below (the keyspace check).
+kubectl wait pod -l app.kubernetes.io/part-of=port-forecaster \
+  --field-selector=status.phase!=Succeeded,status.phase!=Failed \
+  --for=condition=Ready --timeout=300s >/dev/null ||
   echo "Not every pod is ready; the checks below show which service is affected."
 echo
 
@@ -34,10 +38,19 @@ check "ksqldb           REST API answers" \
   kubectl exec deploy/ksqldb -c ksqldb -- bash -c "$http_get" 8088 /info
 check "redis            PING" \
   bash -c 'kubectl exec deploy/redis -c redis -- redis-cli ping | grep -q PONG'
+# Both settings come from redis.conf. Without them Redis forgets everything on restart, or the
+# dashboard gets no live updates.
+check "redis            AOF on, keyspace events on" \
+  bash -c 'kubectl exec deploy/redis -c redis -- redis-cli config get appendonly | grep -qx yes &&
+           kubectl exec deploy/redis -c redis -- redis-cli config get notify-keyspace-events | grep -q K'
 check "hdfs             datanode registered with namenode" \
   bash -c "kubectl exec hdfs-namenode-0 -c namenode -- hdfs dfsadmin -report | grep -q 'Live datanodes ([1-9]'"
 check "cassandra        CQL answers" \
   kubectl exec cassandra-0 -c cassandra -- cqlsh -e 'describe keyspaces'
+# Created by the cassandra-init Job. If this fails: kubectl logs job/cassandra-init
+# (the Job removes itself 5 minutes after it finishes; deploying again reruns it safely).
+check "cassandra        keyspace portcongestion exists" \
+  kubectl exec cassandra-0 -c cassandra -- cqlsh -e 'describe keyspace portcongestion'
 
 echo
 if [[ $failed -eq 0 ]]; then

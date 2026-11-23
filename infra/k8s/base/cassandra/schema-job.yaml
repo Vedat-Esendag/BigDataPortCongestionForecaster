@@ -1,0 +1,81 @@
+# cassandra-init: creates the keyspace and tables from cassandra/schema.cql. It does the same job
+# as the cassandra-init service in docker compose.
+#
+# How it runs:
+#   1. Wait until Cassandra answers CQL. The pod is often scheduled before Cassandra has finished
+#      starting, which takes one to two minutes.
+#   2. Run schema.cql. Every statement in it says IF NOT EXISTS, so running it again changes
+#      nothing. That is what makes it safe to run on every deploy.
+#   3. Print the keyspace, so `kubectl logs job/cassandra-init` shows what exists now.
+#
+# Kubernetes deletes the finished Job after 5 minutes (ttlSecondsAfterFinished). That is on
+# purpose: a Job cannot be changed after it was created, so a leftover Job would block the next
+# deploy whenever schema.cql changes. As a side effect, `make k8s-diff` lists the Job as new on
+# every deploy. That is expected.
+#
+# IF NOT EXISTS only creates. It does not change a table that already exists. To add a column
+# later, add an ALTER TABLE statement to schema.cql. Editing the CREATE TABLE does nothing on a
+# cluster that already has the table.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cassandra-init
+  labels:
+    app.kubernetes.io/name: cassandra-init
+    app.kubernetes.io/component: schema
+spec:
+  backoffLimit: 3 # retry a failed run up to three times
+  activeDeadlineSeconds: 900 # give up after 15 minutes in total
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        # Its own name, so the `cassandra` Service never sends database traffic to this pod.
+        app.kubernetes.io/name: cassandra-init
+        app.kubernetes.io/component: schema
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999 # `cassandra` in the image
+        runAsGroup: 999
+      containers:
+        - name: cqlsh
+          image: cassandra:5.0.9 # the same image as the database, only for its cqlsh client
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              echo "Waiting for Cassandra at cassandra:9042..."
+              until cqlsh cassandra 9042 -e 'DESCRIBE KEYSPACES' >/dev/null 2>&1; do
+                sleep 5
+              done
+              echo "Cassandra answers. Applying schema.cql..."
+              cqlsh cassandra 9042 -f /cql/schema.cql
+              echo "Done. The keyspace now contains:"
+              cqlsh cassandra 9042 -e 'DESCRIBE KEYSPACE portcongestion' | grep -E '^CREATE (KEYSPACE|TABLE)'
+          env:
+            - name: HOME # cqlsh writes a history file to ~/.cassandra
+              value: /tmp
+          volumeMounts:
+            - name: schema
+              mountPath: /cql
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: schema
+          configMap:
+            name: cassandra-schema # generated from cassandra/schema.cql, see that folder's kustomization.yaml

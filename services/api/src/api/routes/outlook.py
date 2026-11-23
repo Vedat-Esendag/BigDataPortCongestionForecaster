@@ -1,3 +1,5 @@
+"""The port outlook right now. Read from Redis (latest state)."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
@@ -10,9 +12,11 @@ router = APIRouter(tags=["outlook"])
 
 @router.get("/outlook", response_model=Outlook)
 async def get_outlook(request: Request, port: str) -> Outlook:
-    """The current outlook of `port` for the next 24 to 48 hours, one entry per time slot.
+    """The current outlook of `port`, one entry per time slot, earliest slot first.
 
-    TODO(F10): read the latest port.outlook documents of the port from Redis.
+    Until the Redis key includes the slot (docs/storage.md, known gaps), this returns at most
+    one slot: the most recently computed one. 503 if Redis is down.
     """
     require_port(request.app.state.ports, port)
-    return Outlook(port=port, slots=[])
+    slots = await request.app.state.live.outlook_for_port(port)
+    return Outlook(port=port, slots=slots)
