@@ -1,0 +1,61 @@
+# One-shot: creates the data lake zones, the model folder and the checkpoint folder, like
+# hdfs-init in compose. Safe to run again (mkdir -p). A Job cannot be changed once created, so
+# after editing this file delete it first: kubectl delete job hdfs-init
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hdfs-init
+  labels:
+    app.kubernetes.io/name: hdfs-init
+    app.kubernetes.io/component: init
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900 # give up after 15 minutes instead of retrying forever
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hdfs-init
+        app.kubernetes.io/component: init
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001 # `hadoop`, the user that started the namenode, so HDFS superuser
+        runAsGroup: 100
+      containers:
+        - name: hdfs-init
+          image: apache/hadoop:3.5.0
+          # args, not command (see namenode-statefulset.yaml): the entrypoint writes the config.
+          # Waits until the namenode answers and has left safe mode, then creates the folders.
+          # 777 because Connect and Spark write as different users (compose turns permissions
+          # off instead).
+          args:
+            - bash
+            - -c
+            - |
+              set -e
+              for i in $(seq 60); do
+                hdfs dfsadmin -safemode get 2>/dev/null | grep -q 'Safe mode is OFF' && break
+                echo "waiting for the namenode to be up and out of safe mode"
+                sleep 5
+              done
+              hdfs dfs -mkdir -p /lake/landing /lake/raw /lake/standardized /lake/curated \
+                /lake/quarantine /models/eta /checkpoints
+              hdfs dfs -chmod -R 777 /lake /models /checkpoints
+              hdfs dfs -ls /lake /models
+          envFrom:
+            - configMapRef:
+                name: hdfs-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

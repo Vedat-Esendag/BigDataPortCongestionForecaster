@@ -202,6 +202,10 @@ services:
     platform: linux/amd64 # the official image has no arm64 build; ARM machines (Apple Silicon, Linux ARM) run it emulated
     profiles: [storage]
     hostname: namenode
+    networks:
+      default:
+        # Also reachable as on Kubernetes, so connector configs use one HDFS address everywhere.
+        aliases: [hdfs-namenode]
     user: root # named volumes are root-owned; fine for a single-machine demo
     command: ["hdfs", "namenode"]
     ports:

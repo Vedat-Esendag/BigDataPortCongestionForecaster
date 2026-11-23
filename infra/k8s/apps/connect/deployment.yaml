@@ -1,0 +1,124 @@
+# Kafka Connect, one worker in distributed mode: connector configs, offsets and status live in
+# Kafka topics, so the pod itself holds no state and can be replaced at any time. Same settings as
+# the compose service `connect`, with the Kubernetes addresses. Image built from connect/Dockerfile.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-connect
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # the DMA volume can only be mounted by one pod at a time
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-connect
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-connect
+    spec:
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      # Without this Kubernetes injects KAFKA_CONNECT_PORT=tcp://... for the Service, and the
+      # Confluent image reads CONNECT_* and KAFKA_* variables as worker config.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 # appuser in the Confluent images
+        runAsGroup: 1000
+        fsGroup: 1000 # makes the DMA volume writable for appuser
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: kafka-connect
+          image: portcongestion/connect:8.4.0 # repeats CP_VERSION in versions.env
+          ports:
+            - containerPort: 8083
+              name: rest
+          env:
+            - name: CONNECT_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: CONNECT_REST_ADVERTISED_HOST_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: CONNECT_REST_PORT
+              value: "8083"
+            - name: CONNECT_GROUP_ID
+              value: portcongestion-connect
+            - name: CONNECT_CONFIG_STORAGE_TOPIC
+              value: _connect-configs
+            - name: CONNECT_OFFSET_STORAGE_TOPIC
+              value: _connect-offsets
+            - name: CONNECT_STATUS_STORAGE_TOPIC
+              value: _connect-status
+            # One broker, so one copy of Connect's own topics.
+            - name: CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_STATUS_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: CONNECT_KEY_CONVERTER
+              value: org.apache.kafka.connect.storage.StringConverter
+            - name: CONNECT_VALUE_CONVERTER
+              value: io.confluent.connect.avro.AvroConverter
+            - name: CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL
+              value: http://schema-registry:8081
+            - name: CONNECT_PLUGIN_PATH
+              value: /usr/share/java,/usr/share/confluent-hub-components,/usr/share/connect-plugins
+            # Lets connector configs say ${env:DMI_API_KEY}, so secrets never sit in the config topic.
+            - name: CONNECT_CONFIG_PROVIDERS
+              value: env
+            - name: CONNECT_CONFIG_PROVIDERS_ENV_CLASS
+              value: org.apache.kafka.common.config.provider.EnvVarConfigProvider
+            - name: KAFKA_HEAP_OPTS
+              value: -Xms512m -Xmx1g
+            # Created by scripts/create_k8s_secrets.sh (make k8s-secrets). Optional, so Connect
+            # starts without them; only the connectors that need a key fail.
+            - name: DMI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dmi-secret
+                  key: DMI_API_KEY
+                  optional: true
+            - name: ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alert-webhook-secret
+                  key: ALERT_WEBHOOK_URL
+                  optional: true
+          volumeMounts:
+            - name: dma-files
+              mountPath: /data/dma
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          # Connect loads every plugin on start, which takes a minute or two.
+          startupProbe:
+            httpGet:
+              path: /connectors
+              port: rest
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /connectors
+              port: rest
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: rest
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "1" # shared node: cap us so we cannot starve other groups
+              memory: 1536Mi
+      volumes:
+        - name: dma-files
+          persistentVolumeClaim:
+            claimName: dma-files
