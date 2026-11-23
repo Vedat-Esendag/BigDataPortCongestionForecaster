@@ -2,6 +2,8 @@
 # Data is kept in the volume claim data-cassandra-0, so it survives a pod restart. The keyspace
 # and tables are created by the cassandra-init Job (schema-job.yaml).
 # Image tag repeats CASSANDRA_VERSION in versions.env.
+# Upgrading from the version without a volume: Kubernetes cannot add a volume claim to an existing
+# StatefulSet, so delete it first (kubectl delete statefulset cassandra), then apply.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

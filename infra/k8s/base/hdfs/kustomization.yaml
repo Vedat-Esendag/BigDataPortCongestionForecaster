@@ -13,3 +13,4 @@ resources:
   - namenode-statefulset.yaml
   - datanode-service.yaml
   - datanode-statefulset.yaml
+  - init-job.yaml

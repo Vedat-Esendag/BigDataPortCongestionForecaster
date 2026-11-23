@@ -1,6 +1,13 @@
-# The LOCAL OrbStack cluster only (kubectl context "orbstack"): Spark RBAC plus two test Jobs that
-# run spark-submit in cluster mode from inside the cluster. Nothing else from base/ is deployed.
-# Never apply this to the school cluster; always pass --context orbstack. How to use: README.md.
+# The LOCAL cluster: the whole stack on one laptop, in a kind cluster called "pf".
+#
+# Start it with ONE command from the repo root:   make local-up     (README.md in this folder)
+#
+# Don't `kubectl apply -k` this folder by hand for the stack: our own images (pf/kafka-connect,
+# pf/ais-producer) get their tag, the git commit they were built from, from local-up.sh, which
+# builds them, loads them into kind and adds the tag in a temporary layer on top of this one.
+#
+# Same namespace as the school cluster (bd-gr-05), so every command and Spark setting is the same
+# in both places. Never apply this to the school cluster: local-up.sh only ever talks to kind.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -13,23 +20,64 @@ labels:
     includeTemplates: true
 
 resources:
-  - namespace.yaml
-  - ../../base/spark
+  - namespace.yaml # a local cluster is ours, so we create the namespace (never on school)
+  - ../../base # Kafka, Schema Registry, ksqlDB, Redis, HDFS, Cassandra, Spark RBAC
+  - ../../apps # Kafka Connect and the AIS producer (our own images)
+  # Spark test jobs (spark-job label). local-up.sh leaves them out; run one by hand, see README.md.
   - job-spark-pi.yaml
   - job-smoke-count.yaml
 
-# Settings shared by both Jobs, read by spark-submit through SPARK_CONF_DIR.
+# Settings shared by the Spark test Jobs, read by spark-submit through SPARK_CONF_DIR.
 configMapGenerator:
   - name: spark-local-conf
     files:
       - spark-defaults.conf
     options:
       disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/name: spark-local-conf
+        app.kubernetes.io/component: config
+        layer: batch
 
-# The image built on this Mac by `docker build` (see README.md). OrbStack's Kubernetes uses the
-# same Docker engine, so it is already on the node and never pulled. Keep this equal to
-# spark.kubernetes.container.image in spark-defaults.conf (kustomize cannot rewrite that file).
+# The Spark test Jobs use the image built by `docker build` (see README.md), loaded into kind.
+# Keep this equal to spark.kubernetes.container.image in spark-defaults.conf (kustomize cannot
+# rewrite that file).
 images:
   - name: spark-image
     newName: portcongestion/spark
     newTag: "4.2.0"
+
+# A laptop has less room than the school node. Ask Kubernetes to reserve less memory and CPU for
+# each service (requests), so the whole stack fits in about 8 GB of Docker memory. The limits stay
+# as in base: the Java services need their full heap once they are busy.
+patches:
+  - target: { kind: StatefulSet, name: kafka }
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value: { cpu: 200m, memory: 1Gi }
+  - target: { kind: StatefulSet, name: cassandra }
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value: { cpu: 200m, memory: 1280Mi }
+  - target: { kind: Deployment, name: ksqldb }
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value: { cpu: 100m, memory: 640Mi }
+  - target: { kind: Deployment, name: schema-registry }
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value: { cpu: 100m, memory: 384Mi }
+  - target: { kind: Deployment, name: kafka-connect }
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value: { cpu: 200m, memory: 768Mi }
+  - target: { kind: StatefulSet, name: hdfs-.* }
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value: { cpu: 100m, memory: 384Mi }

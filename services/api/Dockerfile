@@ -11,7 +11,9 @@ WORKDIR /app
 COPY services/api/pyproject.toml services/api/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY services/api/src ./src
-RUN uv sync --frozen --no-dev
+# --no-editable copies the package into .venv; an editable install would point at /app/src,
+# which the final stage does not have (the same fix as in services/ais-producer/Dockerfile).
+RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:${PYTHON_VERSION}-slim
 WORKDIR /app

@@ -6,6 +6,9 @@ metadata:
   name: smoke-count
   labels:
     spark-job: smoke-count
+    app.kubernetes.io/name: smoke-count
+    app.kubernetes.io/component: spark-test
+    layer: batch
 spec:
   backoffLimit: 0 # a failed submit must not start more drivers
   activeDeadlineSeconds: 600

@@ -21,20 +21,20 @@ resources:
 #     newTag: <git-sha>
 
 # Storage class for every volume claim. hostpath-custom is the cluster's default today
-# (cluster/cluster_setup.md), so this only makes the choice explicit. Nothing changes if the
-# school switches the default. The disk is on the node itself: the data survives pod restarts,
-# but not the loss of the node.
+# (cluster/cluster_setup.md), so this only makes the choice explicit. The base leaves it out so
+# other clusters (kind locally) use their own default. The disk is on the node itself: the data
+# survives pod restarts, but not the loss of the node.
 patches:
-  - target: # claims made directly (Redis)
+  - target:
+      kind: StatefulSet
+      name: hdfs-.*|kafka|cassandra
+    patch: |-
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: hostpath-custom
+  - target:
       kind: PersistentVolumeClaim
     patch: |-
       - op: add
         path: /spec/storageClassName
-        value: hostpath-custom
-  - target: # claims made by StatefulSets (Cassandra). Add a target here for each new one.
-      kind: StatefulSet
-      name: cassandra
-    patch: |-
-      - op: add
-        path: /spec/volumeClaimTemplates/0/spec/storageClassName
         value: hostpath-custom

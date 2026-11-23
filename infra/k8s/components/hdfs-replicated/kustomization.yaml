@@ -1,0 +1,27 @@
+# Opt-in: three datanodes and three copies of every block, so HDFS keeps serving (and loses no
+# data) when one or two datanodes are down. Off by default because it triples the datanode CPU,
+# memory and disk on the shared cluster. To switch it on, add to an overlay's kustomization:
+#   components:
+#     - ../../components/hdfs-replicated
+# The replication factor only applies to new files. Files written before keep their copy count
+# until it is raised once:  kubectl exec hdfs-namenode-0 -c namenode -- hdfs dfs -setrep -R 3 /
+# The copy count is chosen by the client that writes, so Spark must match: it sets
+# spark.hadoop.dfs.replication 1 in infra/k8s/spark/school/spark-defaults.conf (make that 3).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: StatefulSet
+      name: hdfs-datanode
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+  - target:
+      kind: ConfigMap
+      name: hdfs-config
+    patch: |-
+      - op: replace
+        path: /data/HDFS-SITE.XML_dfs.replication
+        value: "3"

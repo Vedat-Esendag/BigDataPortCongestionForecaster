@@ -15,8 +15,9 @@ data:
   HDFS-SITE.XML_dfs.namenode.http-bind-host: 0.0.0.0
   # Pods have no reverse DNS entry, so the namenode would reject the datanode without this.
   HDFS-SITE.XML_dfs.namenode.datanode.registration.ip-hostname-check: "false"
-  # Under /tmp because the image runs as the `hadoop` user, who cannot create /hadoop. Moves to
-  # a persistent volume later.
-  HDFS-SITE.XML_dfs.namenode.name.dir: /tmp/hadoop/dfs/name
-  HDFS-SITE.XML_dfs.datanode.data.dir: /tmp/hadoop/dfs/data
+  # Each pod mounts its persistent volume at /hadoop/dfs. The dirs are subfolders of the mount,
+  # so the namenode can tell a fresh volume (no name folder: format it) from one it has used
+  # before (keep the data).
+  HDFS-SITE.XML_dfs.namenode.name.dir: /hadoop/dfs/name
+  HDFS-SITE.XML_dfs.datanode.data.dir: /hadoop/dfs/data
   HDFS-SITE.XML_dfs.replication: "1"

@@ -1,4 +1,8 @@
-# ksqlDB server, empty: no streams, tables or queries. Image tag repeats CP_VERSION.
+# ksqlDB server: the quiet-feed and threshold alerts (F13) and the DMA history split (F2).
+# The queries themselves are in ksql/*.sql and are created by scripts/run_ksql.py after the
+# topics and schemas exist (infra/k8s/local-up.sh does that). ksqlDB keeps them in its command
+# topic in Kafka, so a restarted pod runs the same queries again by itself.
+# Image tag repeats CP_VERSION.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,6 +50,16 @@ spec:
               value: http://0.0.0.0:8088
             - name: KSQL_KSQL_SCHEMA_REGISTRY_URL
               value: http://schema-registry:8081
+            # Names ksqlDB's own topics (_confluent-ksql-portcongestion_command_topic holds every
+            # query). Fixed, so a new pod finds the queries of the old one. Same as in compose.
+            - name: KSQL_KSQL_SERVICE_ID
+              value: portcongestion_
+            # One broker, so one copy of ksqlDB's internal topics and of the topics its queries
+            # create (alerts, ais.history.position, ais.history.static if not made by the script).
+            - name: KSQL_KSQL_INTERNAL_TOPIC_REPLICAS
+              value: "1"
+            - name: KSQL_KSQL_STREAMS_REPLICATION_FACTOR
+              value: "1"
             - name: KSQL_HEAP_OPTS
               value: -Xms512m -Xmx1g
           securityContext:

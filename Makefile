@@ -18,7 +18,8 @@ JAVA_MAJOR := $(call java_major,$(JAVA_HOME))
 
 .PHONY: help up up-core down down-volumes topics schemas connectors test lint fmt \
         compose-config run-producer spark-package spark-live spark-lake spark-image dashboard-build download-dma clean \
-        k8s-diff k8s-apply k8s-check k8s-up k8s-secrets \
+        k8s-diff k8s-apply k8s-check k8s-up k8s-secrets k8s-test-hdfs k8s-hdfs-report \
+        local-up local-down local-check \
         r1-package r1-up r1-ingest r1-order r1-arrivals r1-compare
 
 help: ## Show this help
@@ -54,8 +55,23 @@ k8s-check: ## Smoke test: check every service on the school cluster answers (rea
 
 k8s-up: k8s-apply k8s-check ## Deploy to the school cluster and wait until every service answers
 
+k8s-test-hdfs: ## Restart the HDFS pods and check a test file survives (HDFS down 1-2 min)
+	infra/k8s/test-hdfs-restart.sh
+
+k8s-hdfs-report: ## HDFS health: datanodes, free space, block problems, size per lake zone (read-only)
+	infra/k8s/hdfs-report.sh
+
 k8s-secrets: ## Create or update the Kubernetes Secrets from the keys in .env
 	scripts/create_k8s_secrets.sh
+
+local-up: ## The whole stack on a local kind cluster, in one command (infra/k8s/overlays/local/README.md)
+	infra/k8s/local-up.sh up
+
+local-check: ## Smoke test of the local kind cluster (read-only)
+	PF_CLUSTER=local infra/k8s/check.sh
+
+local-down: ## Delete the local kind cluster and all its data
+	infra/k8s/local-up.sh down
 
 topics: ## Create the Kafka topics
 	scripts/create_topics.sh

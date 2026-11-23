@@ -1,5 +1,8 @@
-# Kafka, one broker in KRaft mode. Only what it needs to start: no topics, and no persistent
-# volume yet (data is lost when the pod restarts). Image tag repeats CP_VERSION in versions.env.
+# Kafka, one broker in KRaft mode, no topics. Its log (the messages and the KRaft metadata) is on a
+# persistent volume, so it survives pod restarts; the fixed CLUSTER_ID lets the restarted broker
+# accept its old log. Image tag repeats CP_VERSION in versions.env.
+# Upgrading from the version without a volume: Kubernetes cannot add a volume claim to an existing
+# StatefulSet, so delete it first (kubectl delete statefulset kafka), then apply.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -22,6 +25,9 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000 # appuser in the Confluent images
+        runAsGroup: 1000
+        fsGroup: 1000 # makes the volume writable for appuser
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: kafka
           image: confluentinc/cp-kafka:8.4.0
@@ -56,6 +62,13 @@ spec:
               value: "1"
             - name: KAFKA_HEAP_OPTS
               value: -Xms512m -Xmx1g
+            # A subfolder of the volume, so a lost+found folder at the volume root is never
+            # mistaken for a topic.
+            - name: KAFKA_LOG_DIRS
+              value: /var/lib/kafka/data/logs
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka/data
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -77,3 +90,13 @@ spec:
             limits:
               cpu: "1" # shared node: cap us so we cannot starve other groups
               memory: 2Gi
+  # Storage class is set per cluster in the overlay (school: hostpath-custom). Kafka keeps messages
+  # 7 days by default; topics with large history loads should get a shorter retention.ms.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi

@@ -120,6 +120,20 @@ make spark-live                 # submit the live job (placeholder predictor for
 A subset is enough on a laptop: `docker compose` profiles are `core`, `storage`, `apps` and `monitoring`.
 `make down` stops everything, `make down-volumes` also deletes the data.
 
+### The same stack on Kubernetes, locally
+
+To run it the way it runs on the school cluster, in a local [kind](https://kind.sigs.k8s.io/)
+cluster, with every service wired together and checked:
+
+```bash
+make local-up                   # create the cluster, build and load our images, deploy, wire, check
+make local-check                # check it again later (read-only)
+make local-down                 # delete the cluster and its data
+```
+
+Needs Docker with 8 GB of memory, kind and kubectl. Details, and what to do when something
+fails: [infra/k8s/overlays/local/README.md](infra/k8s/overlays/local/README.md).
+
 Other targets: `make help` lists them all. The ones you will use most are `make test`, `make lint` and `make fmt`.
 
 ## How the repo is organized

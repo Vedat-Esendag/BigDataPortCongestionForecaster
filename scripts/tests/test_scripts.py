@@ -59,6 +59,24 @@ def render(tmp_path, monkeypatch, **env):
     return {p.stem: json.loads(p.read_text()) for p in tmp_path.glob("*.json")}
 
 
+def test_a_reference_to_a_worker_setting_does_not_skip_the_connector(tmp_path, monkeypatch):
+    # dma-csv-source finds Kafka through ${env:CONNECT_BOOTSTRAP_SERVERS}, which only the
+    # Connect worker has. The deploying shell doesn't, and the connector must still render.
+    monkeypatch.delenv("CONNECT_BOOTSTRAP_SERVERS", raising=False)
+    rendered = render(tmp_path, monkeypatch)
+
+    status = rendered["dma-csv-source"]["tasks.file.status.storage.bootstrap.servers"]
+    assert status == "${env:CONNECT_BOOTSTRAP_SERVERS}"
+
+
+def test_every_rendered_config_carries_its_own_name(tmp_path, monkeypatch):
+    # Connect's /config/validate rejects a config without "name" (seen on Kafka 4.4).
+    rendered = render(tmp_path, monkeypatch)
+
+    assert rendered
+    assert all(config["name"] == name for name, config in rendered.items())
+
+
 def test_weather_connectors_are_rendered_for_the_configured_port(tmp_path, monkeypatch):
     rendered = render(tmp_path, monkeypatch)
 

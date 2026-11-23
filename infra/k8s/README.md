@@ -1,13 +1,17 @@
-# Kubernetes (school cluster)
+# Kubernetes
 
-The base services of the project on the university's shared Kubernetes cluster, in our
-namespace `bd-gr-05`. To get access first, follow [cluster/cluster_setup.md](cluster/cluster_setup.md).
+The project's services on Kubernetes, in namespace `bd-gr-05`, in two places:
 
-This is a starting point: every service starts and answers, but most of them aren't set up for
-the project yet. Redis and Cassandra are done: they keep their data on persistent volumes, and
-the Cassandra keyspace and tables are created on every deploy (see
-[docs/storage.md](../../docs/storage.md)). Kafka and HDFS don't have topics, schemas, folders
-or persistent storage yet, so they lose their data when their pod restarts.
+- **Your laptop:** `make local-up` starts the whole stack in a local kind cluster, wires it
+  together and checks it. Everything about that is in
+  [overlays/local/README.md](overlays/local/README.md).
+- **The school cluster:** the rest of this page. To get access first, follow
+  [cluster/cluster_setup.md](cluster/cluster_setup.md).
+
+Kafka, HDFS, Cassandra and Redis keep their data on persistent volumes. The HDFS folders and the
+Cassandra keyspace and tables are created by init Jobs on every deploy (see
+[docs/storage.md](../../docs/storage.md)). Kafka Connect and the AIS producer (in `apps/`) run
+locally only so far: the school cluster can't pull our own images until we have a registry.
 
 ## Start, check, update
 
@@ -25,8 +29,7 @@ To update while things are running, don't stop anything: change the files, then
 `make k8s-diff` and `make k8s-apply` again.
 
 - New objects are created, unchanged ones are left alone.
-- A changed service gets a fresh pod. Redis and Cassandra keep their data across that; the
-  other services start empty again (no persistent storage for them yet).
+- A changed service gets a fresh pod. The stores keep their data across that.
 - The Cassandra schema Job (`cassandra-init`) shows up as new in every diff. That is expected:
   it removes itself five minutes after it finishes, and running it again changes nothing.
 - A file you remove from the setup is **not** removed from the cluster. Delete its objects first
@@ -41,11 +44,15 @@ or outside `bd-gr-05`.
 infra/k8s/
   base/                 every component, no namespace
     <component>/        kustomization.yaml, service.yaml, statefulset.yaml or deployment.yaml
+  apps/                 our own images: kafka-connect, ais-producer
   overlays/school/      namespace bd-gr-05 and the school-specific settings
-  overlays/local/       Spark test jobs on the local OrbStack cluster only (see its README.md)
-  cluster/              access to the cluster (kubeconfig, env.sh, setup guide)
-  deploy.sh             diff / apply, with the namespace guard
-  check.sh              smoke test
+  overlays/local/       the whole stack on a local kind cluster (see its README.md)
+  cluster/              access to the school cluster (kubeconfig, env.sh, setup guide)
+  kind/                 the local kind cluster (cluster.yaml, env.sh)
+  spark/                Spark jobs on the school cluster (see its README.md)
+  deploy.sh             school: diff / apply, with the namespace guard
+  local-up.sh           local: the one-command start (make local-up / local-down)
+  check.sh              smoke test, school or local (PF_CLUSTER=local)
 ```
 
 To add a component: create `base/<name>/` like the others, add it to `base/kustomization.yaml`,

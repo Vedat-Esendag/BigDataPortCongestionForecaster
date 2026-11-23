@@ -5,6 +5,9 @@ metadata:
   name: spark-pi
   labels:
     spark-job: spark-pi
+    app.kubernetes.io/name: spark-pi
+    app.kubernetes.io/component: spark-test
+    layer: batch
 spec:
   backoffLimit: 0 # a failed submit must not start more drivers
   activeDeadlineSeconds: 600
