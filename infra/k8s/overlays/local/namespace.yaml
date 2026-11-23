@@ -1,5 +1,10 @@
 # Same namespace name as the school cluster, so manifests and commands stay the same.
+# Only the local overlay creates it: on the school cluster it exists already and we may not.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: bd-gr-05
+  labels:
+    app.kubernetes.io/name: bd-gr-05
+    app.kubernetes.io/component: namespace
+    layer: tooling

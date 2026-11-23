@@ -29,7 +29,9 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: kafka-connect
-          image: portcongestion/connect:8.4.0 # repeats CP_VERSION in versions.env
+          # Built from connect/Dockerfile. The overlay sets the tag: the git commit it was built
+          # from (never "latest"), so a new build always means a new pod.
+          image: pf/kafka-connect
           ports:
             - containerPort: 8083
               name: rest

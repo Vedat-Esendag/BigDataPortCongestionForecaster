@@ -4,7 +4,8 @@ kind: Kustomization
 labels:
   - pairs:
       app.kubernetes.io/name: kafka-connect
-      layer: ingest
+      app.kubernetes.io/component: connect
+      layer: tooling
     includeTemplates: true
 
 resources:

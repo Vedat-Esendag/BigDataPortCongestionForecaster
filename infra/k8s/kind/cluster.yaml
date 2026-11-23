@@ -1,0 +1,10 @@
+# The local kind cluster for the one-command start (infra/k8s/local-up.sh, make local-up).
+# One node runs everything, like the school cluster. kind runs that node as a Docker container,
+# so it can use all the memory Docker has (about 8 GB is needed for the full stack).
+#
+# kind brings its own storage class ("standard", local-path): every volume claim gets a folder
+# on the node container. Deleting the cluster deletes the data with it.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane

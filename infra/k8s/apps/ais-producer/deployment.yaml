@@ -27,7 +27,9 @@ spec:
         runAsGroup: 65534
       containers:
         - name: ais-producer
-          image: portcongestion/ais-producer:latest
+          # Built from services/ais-producer/Dockerfile. The overlay sets the tag: the git commit
+          # it was built from (never "latest").
+          image: pf/ais-producer
           ports:
             - containerPort: 9100
               name: metrics

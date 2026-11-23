@@ -51,6 +51,30 @@ can PUBLISH and is the fallback if this proves too chatty.
 Borderline on criterion (c): the HDFS sink (15 months) and the Redis sink (13.8 months) are a bit
 past 12 months. Both repositories are active (commits in 2026) and nothing else free does the job.
 
+## First real run (23 November 2026)
+
+The connectors first ran on the local Kubernetes stack (`make local-up`, Confluent Platform
+8.4 = Kafka 4.4, Java 25 in the Connect image). One test record per result topic was sent
+through Kafka. What happened:
+
+| Connector | Result |
+|---|---|
+| `redis-sink` | **Works.** Keys `ship.prediction:<mmsi>` and `port.outlook:<port>`, JSON documents, timestamps in epoch milliseconds: exactly what the API reads. |
+| `dma-csv-source` | **Starts.** Needed `tasks.file.status.storage.bootstrap.servers` to come from the worker (`${env:CONNECT_BOOTSTRAP_SERVERS}`): it had the compose address `kafka:29092`, which doesn't exist on Kubernetes. Not yet tested with a real DMA file. |
+| `cassandra-sink` | **Task RUNNING, but writes nothing.** Every record fails with `Error decoding/mapping Kafka record ...: null` (no stack trace, even at DEBUG) and is retried forever. Most likely DataStax 1.7.6 (built for Kafka 3.x) against Kafka 4.4. Its own converter settings were removed first: with them the task didn't start at all (`ServiceConfigurationError ... EncryptionExecutor not a subtype`, a class-loading clash); the worker's converters are identical. **Open.** |
+| `hdfs-parquet-sink` | **Fails:** `UnsupportedOperationException: getSubject is not supported`. The Hadoop client inside the plugin needs the Java Security Manager, which Java 24+ removed entirely, and the Connect image runs Java 25. Needs a Connect base image on Java 21 or a newer HDFS plugin. The Spark recorder (`infra/k8s/spark/school/recorder-*.yaml`) already writes Kafka to the lake, so this connector may not be needed. **Open.** |
+| `open-meteo-wind-*`, `open-meteo-marine-*` | **Fail:** `Invalid Java object for schema with type BYTES: class org.apache.camel.converter.stream.InputStreamCache for field: "payload"`. Risk 1 below: Camel hands over a stream, not bytes or a string. **Open.** |
+| `dmi-wind-*`, `webhook-sink` | Not run: they need `DMI_API_KEY` and `ALERT_WEBHOOK_URL`. |
+
+Also found and fixed in the same run: Connect's `/config/validate` (Kafka 4) rejects a config
+without `name`, so `render_connectors.py` now puts it in; and the Confluent 8 images have no
+`curl`, so the compose healthchecks of Schema Registry, Connect and ksqlDB could never pass (they
+now use bash).
+
+Important for the smoke test: a sink can report `RUNNING` and still store nothing (the Cassandra
+sink above). `make local-check` checks the states only; whether data arrives needs a record sent
+through, as above.
+
 ## Not verified yet
 
 None of these vendors states support for Kafka 4.x; they are built against the Connect API of

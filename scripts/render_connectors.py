@@ -14,7 +14,8 @@ and Kafka config provider references (${env:NAME}) are left alone.
 
 A connector that references ${env:NAME} is skipped, with a note on stderr, when NAME is not set
 in this process's environment. The Connect worker resolves these at run time from its own
-environment, so a missing secret would only fail later and less clearly.
+environment, so a missing secret would only fail later and less clearly. The worker's own
+CONNECT_* settings are the exception: the worker always has them (see is_worker_setting).
 
     render_connectors.py --out DIR      write one <name>.json (config map only) per connector
                                         and print "name<TAB>connector.class<TAB>file" lines
@@ -66,12 +67,24 @@ def expansions(text: str, ports: list[dict]):
 ENV_REFERENCE = re.compile(r"\$\{env:([A-Za-z0-9_]+)\}")
 
 
+def is_worker_setting(name: str) -> bool:
+    """CONNECT_* variables are the Connect worker's own settings (CONNECT_BOOTSTRAP_SERVERS and
+    so on). The worker always has them, so a connector may reference them even though the shell
+    deploying it does not. The filepulse source uses this to find Kafka in compose (kafka:29092)
+    and on Kubernetes (kafka:9092) with one config."""
+    return name.startswith("CONNECT_")
+
+
 def render(out_dir: Path) -> int:
     ports = load_ports()
     out_dir.mkdir(parents=True, exist_ok=True)
     for template in sorted(CONNECT_DIR.glob("*.json")):
         text = template.read_text()
-        missing = sorted(n for n in set(ENV_REFERENCE.findall(text)) if not os.environ.get(n))
+        missing = sorted(
+            n
+            for n in set(ENV_REFERENCE.findall(text))
+            if not os.environ.get(n) and not is_worker_setting(n)
+        )
         if missing:
             print(f"SKIP {template.name}: {', '.join(missing)} is not set", file=sys.stderr)
             continue
@@ -80,7 +93,11 @@ def render(out_dir: Path) -> int:
             for token, value in tokens.items():
                 rendered = rendered.replace(token, value)
             doc = json.loads(rendered)
-            name, config = doc["name"], doc["config"]
+            # The name goes inside the config too: Connect's /config/validate endpoint (Kafka 4)
+            # rejects a config without it, and PUT /connectors/<name>/config accepts it when it
+            # matches the name in the URL.
+            name = doc["name"]
+            config = {"name": name, **doc["config"]}
             target = out_dir / f"{name}.json"
             target.write_text(json.dumps(config, indent=2))
             print(f"{name}\t{config['connector.class']}\t{target}")

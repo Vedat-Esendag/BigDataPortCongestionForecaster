@@ -26,7 +26,16 @@ VALIDATE_ONLY=0
 
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
-PY=(uv run --no-project --with pyyaml python scripts/render_connectors.py)
+# render_connectors.py needs PyYAML. uv provides it; without uv, a python3 that already has it
+# works too.
+if command -v uv >/dev/null; then
+  PY=(uv run --no-project --with pyyaml python scripts/render_connectors.py)
+elif python3 -c 'import yaml' 2>/dev/null; then
+  PY=(python3 scripts/render_connectors.py)
+else
+  echo "Needs uv, or a python3 with PyYAML (pip install pyyaml)" >&2
+  exit 1
+fi
 
 echo "Waiting for Kafka Connect at $CONNECT_URL ..."
 for _ in $(seq 1 60); do

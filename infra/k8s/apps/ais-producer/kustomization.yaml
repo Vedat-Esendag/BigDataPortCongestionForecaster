@@ -4,6 +4,7 @@ kind: Kustomization
 labels:
   - pairs:
       app.kubernetes.io/name: ais-producer
+      app.kubernetes.io/component: producer
       layer: ingest
     includeTemplates: true
 
