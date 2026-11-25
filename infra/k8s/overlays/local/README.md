@@ -38,7 +38,7 @@ first real run showed (details and error messages in
 | `cassandra-sink` | predictions, outlooks, analytics, evaluation | Cassandra | **reports RUNNING but writes nothing** (open) |
 | `hdfs-parquet-sink` | every live and result topic | HDFS `/lake/raw` as Parquet | **fails**: Java 25 in the image (open) |
 | `open-meteo-wind-dkebj`, `open-meteo-marine-dkebj` | Open-Meteo API | `weather.forecast` | **fails**: Camel payload type (open) |
-| `dmi-wind-dkebj-<station>` | DMI API | `weather.observation` | only with `DMI_API_KEY` in `.env` |
+| `dmi-wind-dkebj-<station>` | DMI API | `weather.observation` | works, no key needed (DMI dropped API keys in Dec 2025) |
 | `webhook-sink` | `alerts` | your webhook | only with `ALERT_WEBHOOK_URL` in `.env` |
 
 Because of the open ones, `make local-up` currently ends with *"The local stack is up, with

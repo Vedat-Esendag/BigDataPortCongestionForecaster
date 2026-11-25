@@ -39,5 +39,4 @@ create() {
 }
 
 create aisstream-secret AISSTREAM_API_KEY "${AISSTREAM_API_KEY:-}"
-create dmi-secret DMI_API_KEY "${DMI_API_KEY:-}"
 create alert-webhook-secret ALERT_WEBHOOK_URL "${ALERT_WEBHOOK_URL:-}"
