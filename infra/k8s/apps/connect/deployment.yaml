@@ -27,6 +27,26 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000 # makes the DMA volume writable for appuser
         fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        # FilePulse lists /data/dma/incoming and finds nothing if the folder doesn't exist yet,
+        # which it doesn't on a fresh volume. Same image as Connect, so nothing extra to pull.
+        - name: create-dma-dir
+          image: pf/kafka-connect
+          command: ["mkdir", "-p", "/data/dma/incoming"]
+          volumeMounts:
+            - name: dma-files
+              mountPath: /data/dma
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
       containers:
         - name: kafka-connect
           # Built from connect/Dockerfile. The overlay sets the tag: the git commit it was built
