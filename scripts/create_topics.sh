@@ -43,5 +43,19 @@ for entry in "${TOPICS[@]}"; do
     --replication-factor 1
 done
 
+# Schema Registry's storage topic, compacted (issue #9). Same as in
+# infra/k8s/base/create-topic-job.yaml: create it if missing, and set the policy either way.
+"${KAFKA_RUN[@]}" kafka-topics \
+  --bootstrap-server "$BOOTSTRAP" \
+  --create --if-not-exists \
+  --topic _schemas \
+  --partitions 1 \
+  --replication-factor 1 \
+  --config cleanup.policy=compact
+"${KAFKA_RUN[@]}" kafka-configs \
+  --bootstrap-server "$BOOTSTRAP" \
+  --entity-type topics --entity-name _schemas \
+  --alter --add-config cleanup.policy=compact
+
 echo
 "${KAFKA_RUN[@]}" kafka-topics --bootstrap-server "$BOOTSTRAP" --list
