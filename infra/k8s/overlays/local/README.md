@@ -34,17 +34,17 @@ first real run showed (details and error messages in
 | Connector | From | To | Status |
 |---|---|---|---|
 | `redis-sink` | `ship.prediction`, `port.outlook` | Redis | works, tested with a record |
-| `dma-csv-source` | DMA CSV files in the Connect pod's `/data/dma/incoming` | `ais.history.raw` | starts; not yet tested with a real file |
+| `dma-csv-source` | DMA CSV files in the Connect pod's `/data/dma/incoming` | `ais.history.raw` | works, tested with a small file in the DMA format |
 | `cassandra-sink` | predictions, outlooks, analytics, evaluation | Cassandra | **reports RUNNING but writes nothing** (open) |
 | `hdfs-parquet-sink` | every live and result topic | HDFS `/lake/raw` as Parquet | **fails**: Java 25 in the image (open) |
-| `open-meteo-wind-dkebj`, `open-meteo-marine-dkebj` | Open-Meteo API | `weather.forecast` | **fails**: Camel payload type (open) |
-| `dmi-wind-dkebj-<station>` | DMI API | `weather.observation` | works, no key needed (DMI dropped API keys in Dec 2025) |
+| `open-meteo-wind-dkebj`, `open-meteo-marine-dkebj` | Open-Meteo API | `weather.forecast` | works (fixed 26 Nov) |
+| `dmi-wind-dkebj-<station>` | DMI API | `weather.observation` | works (fixed 26 Nov), no key needed since DMI dropped API keys in Dec 2025 |
 | `webhook-sink` | `alerts` | your webhook | only with `ALERT_WEBHOOK_URL` in `.env` |
 
-Because of the open ones, `make local-up` currently ends with *"The local stack is up, with
-problems listed above"* and the smoke test lists the failing connectors. Everything else is up and
-usable. The ksqlDB alert query was tested end to end: an outlook with 4 late ships produced the
-alert `dkebj: late ships = 4` on the `alerts` topic.
+Because of the two open sinks, `make local-up` currently ends with *"The local stack is up, with
+problems listed above"*: the smoke test lists `hdfs-parquet-sink` as failing, and the Cassandra sink
+passes the check but stores nothing. Everything else is up and usable. Whether to fix or drop those
+two is proposed in [docs/decisions.md](../../../../docs/decisions.md#which-kafka-connect-connectors-stay-proposal-for-15).
 
 Not here yet, because they have no Kubernetes manifests: the Spark live job, the API and the
 dashboard. Run those from docker compose for now (see the main README).
