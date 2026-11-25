@@ -27,10 +27,14 @@ lake. On the school cluster, run one with
 | `send-fixtures` | Job, in `one-off/` | test sender: 20 rows to `ais.position`, 6 to `ais.static` |
 | `lake-check` | Job, in `one-off/` | rows, duplicates and offset gaps per dataset in `/lake/raw` |
 
-Two settings are open and marked in the files:
-- **IMAGE** (`school/image/kustomization.yaml`, one place for both folders): the registry is not
-  chosen, so the image is a placeholder that fails at once. `make spark-image` builds
-  `spark-jobs:<git sha>`.
+Two settings are marked in the files:
+- **IMAGE** (`school/image/kustomization.yaml`, one place for both folders):
+  `ghcr.io/vedat-esendag/spark-jobs:<git sha>`, public, linux/amd64. To use a new build, push
+  it and change `newTag` there. `make spark-image` builds
+  `spark-jobs:<git sha>` locally. `make spark-push` builds the linux/amd64 variant and pushes it to
+  `$SPARK_REGISTRY/spark-jobs:<git sha>` (default `ghcr.io/vedat-esendag`); it refuses a tree
+  with uncommitted or untracked files. `make images-push` pushes it together with our other
+  images, with the same tag (`infra/k8s/README.md`, Images).
 - **NETWORKPOLICY** (`school/spark-defaults.conf`): one line skips the NetworkPolicy that Spark
   4.2 creates in cluster mode, because the `spark` Role may not create it.
 
