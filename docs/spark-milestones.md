@@ -10,7 +10,7 @@ Each milestone: plan, implement, show real output, review, commit.
 | S1b | Spark running as pods on local Kubernetes (OrbStack) | Done, commit `ce76738` |
 | S2 | Kafka-to-HDFS streaming job | Done, commit `0ea7e5a` |
 | S3a | School setup built and rehearsed locally | Done |
-| S3b | Run on the school cluster | Blocked |
+| S3b | Run on the school cluster | Running; restart test open |
 | S4 | Cleaning (F4): raw to standardized and quarantine | Planned |
 | S5 | DMA history into the lake, filtered to Esbjerg | Planned |
 | R1 | The October Esbjerg waiting analysis rebuilt in Spark, compared event by event | Done, not committed |
@@ -275,23 +275,32 @@ Learned on the way:
 - The S1b `smoke-count` Job in `overlays/local` has the same name as the school one; delete the
   old Job before running the rehearsal in the same namespace
 
-### S3b: run on the school cluster (blocked)
+### S3b: run on the school cluster (running, restart test open)
 
-Waiting on:
-- Gerardas: the registry (OK for public images on ghcr.io?) and the image name, `networkpolicies`
-  in the `spark` Role (then delete the NETWORKPOLICY line), and wiring `infra/k8s/spark/school`
-  into `deploy.sh`
-- Oskar: topics `ais.position` and `ais.static` (3 partitions) on the school Kafka, schemas
-  registered in the school Schema Registry
-- Ahmed: HDFS folders `/lake/...`, `/models/eta` and `/checkpoints`, owned by user `spark`, and
-  persistent volumes
+Image:
+- `ghcr.io/vedat-esendag/spark-jobs:dede587`, public, linux/amd64, pushed with `make images-push`
+  (digest `sha256:2fb209fedef714bc58ddc2d4299f6c9628660ccb9a8d26bbef2c693cfc14d748`). Mapped
+  in `school/image/kustomization.yaml`; pulls anonymously, so no pull secret
 
-Then: push `spark-jobs:<sha>`, set the registry and tag in `school/image/kustomization.yaml`,
-`deploy.sh diff`, `apply`, smoke job, recorders, sender, `lake-check`, restart test, with the same
-checks as S3a.
+On the school cluster (`bd-gr-05`):
+- Smoke job: `rows 20`
+- Both recorders (`kafka-to-lake-ais-position-0`, `kafka-to-lake-ais-static-0`) running since
+  23 Nov (14:46 and 14:48 UTC) on `spark-jobs:dede587`, one executor each, 0 restarts
+- After `send-fixtures`, `lake-check`: 20 and 6 rows, duplicates 0
+- Re-checked on 25 Nov (read-only): topic end offsets `ais.position` 8 / 4 / 8 and `ais.static`
+  3 / 1 / 2, the same as the last checkpoint batch (`{"0":8,"1":4,"2":8}` and
+  `{"0":3,"1":1,"2":2}`); the recorders still log a micro-batch every minute, no errors
 
-Known risk until Kafka has persistent storage: if Kafka loses its data but HDFS keeps the
-recorder's checkpoint, the recorder stops with a data-loss error instead of skipping the gap.
+Open:
+- Restart test (delete the `ais.position` driver pod, resume from the checkpoint, second send,
+  expect 40 and 12 rows with every (partition, offset) once). Blocked since 25 Nov: the node's
+  root disk is 99 % full (DiskPressure), so no new pod can be scheduled, and Schema Registry,
+  which `send-fixtures` needs, is down. To run once the disk is freed
+- NETWORKPOLICY line in `school/spark-defaults.conf` (Gerardas: `networkpolicies` in the
+  `spark` Role), and wiring `infra/k8s/spark/school` into `deploy.sh`
+
+Known risk: if Kafka loses its data but HDFS keeps the recorder's checkpoint, the recorder stops
+with a data-loss error instead of skipping the gap.
 
 Open issues (local OrbStack rehearsal):
 - OrbStack rehearsal recorders (kafka-to-lake-ais-position-0 / -ais-static-0) crash-loop after
