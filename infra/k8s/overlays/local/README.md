@@ -147,12 +147,21 @@ Check everything again at any time (read-only): `make local-check`.
 
 ### Loading DMA history files
 
-The FilePulse connector reads CSV files from a volume in the Connect pod. Copy one unzipped day
-in, and it starts reading within 30 seconds:
+The FilePulse connector reads CSV files from `/data/dma/incoming`, a volume in the Connect pod.
+Copy one unzipped day in, and it starts reading within 30 seconds:
 
 ```bash
-kubectl cp data/dma/aisdk-2026-11-05.csv $(kubectl get pod -l app.kubernetes.io/name=kafka-connect -o name | cut -d/ -f2):/data/dma/incoming/
+f=aisdk-2026-11-05.csv
+kubectl exec -i deploy/kafka-connect -c kafka-connect --   bash -c "cat > /data/dma/incoming/$f.part && mv /data/dma/incoming/$f.part /data/dma/incoming/$f"   < data/dma/incoming/$f
 ```
+
+Why not `kubectl cp`: it needs `tar` inside the container, and the Confluent 8 Connect image has
+none. The `.part` name keeps FilePulse from reading a half-copied file (it only lists `*.csv`).
+
+What comes out, per CSV row: one record in `ais.history.raw`, then the ksqlDB history split
+writes it to `ais.history.position` and, if the row carries real static data (IMO, destination
+or ETA), to `ais.history.static`. Tested with a 3-row file in the DMA format: 3 raw, 3 positions,
+2 statics (the third row had only `Unknown` static values).
 
 One unzipped day is about 4.5 GB. The volume holds 10 GB, so delete processed files.
 
