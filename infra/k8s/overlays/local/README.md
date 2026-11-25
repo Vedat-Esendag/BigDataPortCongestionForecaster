@@ -70,8 +70,19 @@ chmod +x ~/.local/bin/kind      # ~/.local/bin must be on your PATH
 brew install kind
 ```
 
-On **Docker Desktop**, raise the memory under Settings → Resources (8 GB or more). OrbStack gives
-Docker enough by default.
+Install kubectl (Linux and WSL; on macOS `brew install kubectl`):
+
+```bash
+curl -fsSLo ~/.local/bin/kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x ~/.local/bin/kubectl
+```
+
+On **Docker Desktop for Mac**, raise the memory under Settings → Resources (8 GB or more).
+OrbStack gives Docker enough by default. On **Windows** (WSL 2 engine) there is no memory slider:
+Docker gets what WSL gets, by default half your RAM, set in `.wslconfig`
+([docs/setup.md](../../../../docs/setup.md#windows-through-wsl2)). On a 16 GB PC the default 8 GB
+is just enough, but close heavy programs first: with the stack running, Windows was down to 1.5
+GB free and WSL commands started timing out (see the table below).
 
 **Apple Silicon (M1 to M4):** the official Hadoop image exists for x86 only, and a kind cluster
 on an ARM Mac can't run x86 images. Everything else works; the two HDFS pods won't start, so the
@@ -152,7 +163,9 @@ Copy one unzipped day in, and it starts reading within 30 seconds:
 
 ```bash
 f=aisdk-2026-11-05.csv
-kubectl exec -i deploy/kafka-connect -c kafka-connect --   bash -c "cat > /data/dma/incoming/$f.part && mv /data/dma/incoming/$f.part /data/dma/incoming/$f"   < data/dma/incoming/$f
+kubectl exec -i deploy/kafka-connect -c kafka-connect -- \
+  bash -c "cat > /data/dma/incoming/$f.part && mv /data/dma/incoming/$f.part /data/dma/incoming/$f" \
+  < data/dma/incoming/$f
 ```
 
 Why not `kubectl cp`: it needs `tar` inside the container, and the Confluent 8 Connect image has
@@ -189,6 +202,7 @@ docker start pf-control-plane     # the pods come back by themselves after a min
 | `hdfs-*` pods crash with `exec format error` | Apple Silicon, see above. |
 | A connector shows `FAILED` in the smoke test | `kubectl port-forward svc/kafka-connect 8083`, then open `http://localhost:8083/connectors/<name>/status`: the `trace` field has the reason. |
 | `ksqlDB queries` fails | The topics or schemas aren't there yet. Run `make local-up` again; the step retries for 5 minutes. |
+| WSL commands hang or fail with `Wsl/Service/WSAETIMEDOUT` (Windows) | Windows is out of memory; the stack takes about 6 GB inside WSL. Pause the cluster (`docker stop pf-control-plane`, data is kept), close other programs, then `docker start pf-control-plane`. |
 | Anything else | `kubectl get pods`, then `kubectl describe pod <name>` (events at the bottom) and `kubectl logs <name>`. |
 
 ## Differences from the school cluster
