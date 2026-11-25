@@ -12,13 +12,17 @@ labels:
 resources:
   - ../../base
 
-# Image registry for our own images (kafka-connect, ais-producer, spark-jobs, web): not chosen
-# yet. When it is, map each image here, for example:
-#
-# images:
-#   - name: pf/ais-producer
-#     newName: <registry>/pf/ais-producer
-#     newTag: <git-sha>
+# Our own images, public on ghcr.io (no pull secret), linux/amd64, pushed with
+# `make images-push` and tagged with the git commit they were built from. These apply to apps/
+# (kafka-connect, ais-producer), which this overlay does not list yet, so today they change
+# nothing in the render. spark-jobs is mapped in infra/k8s/spark/school/image.
+images:
+  - name: pf/ais-producer
+    newName: ghcr.io/vedat-esendag/pf/ais-producer
+    newTag: dede587
+  - name: pf/kafka-connect
+    newName: ghcr.io/vedat-esendag/pf/kafka-connect
+    newTag: dede587
 
 # Storage class for every volume claim. hostpath-custom is the cluster's default today
 # (cluster/cluster_setup.md), so this only makes the choice explicit. The base leaves it out so

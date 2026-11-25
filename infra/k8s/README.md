@@ -11,7 +11,8 @@ The project's services on Kubernetes, in namespace `bd-gr-05`, in two places:
 Kafka, HDFS, Cassandra and Redis keep their data on persistent volumes. The HDFS folders and the
 Cassandra keyspace and tables are created by init Jobs on every deploy (see
 [docs/storage.md](../../docs/storage.md)). Kafka Connect and the AIS producer (in `apps/`) run
-locally only so far: the school cluster can't pull our own images until we have a registry.
+locally only so far: their images are on ghcr.io and mapped in `overlays/school` (see Images),
+but `apps/` is not part of the school overlay yet.
 
 ## Start, check, update
 
