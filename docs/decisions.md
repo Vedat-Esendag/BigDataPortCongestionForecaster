@@ -99,6 +99,24 @@ the pyspark pin and `versions.env` drift apart.
 - Both can coexist. Decide based on how much history training needs and whether replaying through
   Kafka is a course goal. The scaffold supports either.
 
+### Which Kafka Connect connectors stay (proposal for #15)
+
+Proposed by Zubeyr (Connect owner) on 26 Nov, for the group to decide in #15. Status is from
+the run on 26 Nov ([connectors.md](connectors.md#second-run-26-november-2026)).
+
+| Connector | Status | Proposal | Why |
+|---|---|---|---|
+| `dma-csv-source` (FilePulse) | works | **keep**, but don't use it for bulk history | It's the only way to replay history through Kafka and the ksqlDB split. A DMA day is about 3 GB and one task reads it row by row, so for #10 loading filtered files straight into HDFS is faster. Keep it for small replays and the demo. |
+| `open-meteo-*`, `dmi-wind-*` | work | **keep if weather stays in scope**, otherwise park | They're the weather side of the project (teacher's feedback: weather on stormy days). The MVP in #16 is the port analysis without weather, so if weather is dropped, remove them in one go with `weather.*`. If kept, something must write `weather.*` to the lake: the Spark recorders only cover `ais.position` and `ais.static` today. |
+| `hdfs-parquet-sink` | fails (Java 25) | **cut** | The Spark recorders already write `ais.position` and `ais.static` to `/lake/raw` and run on the school cluster. Fixing the sink needs an older Connect base image on Java 21 just for a second copy of the same data. If weather stays, add `weather.*` to a recorder instead. |
+| `cassandra-sink` | RUNNING, writes nothing | **cut** | It only reads `ship.prediction`, `port.outlook`, `analytics.weather_delay` and `eval.metrics`, which #15 removes. #12 fills Cassandra from `/lake/curated` with a Spark load job, not through Connect. |
+| `redis-sink` | works | **cut with the prediction topics** | It reads `ship.prediction` and `port.outlook` only. If the API later needs live state in Redis, point it at a new topic then. |
+| `webhook-sink` and `ksql/alerts.sql` | ksql works, sink not run | **park with `port.outlook`** | Both exist only to alert on the port outlook. |
+
+If the group agrees, the result is two or three connectors (FilePulse, plus the weather sources
+if weather stays), a smaller Connect image, and `make local-up` ending green. ksqlDB stays
+either way, for the DMA history split.
+
 ### Spark on YARN versus Kubernetes
 
 - The stack already has HDFS, which points at YARN on a Hadoop cluster. The course also offers
