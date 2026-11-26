@@ -74,6 +74,15 @@ spec:
               create_topic analytics.weather_delay 1
               create_topic eval.metrics 1
 
+              # Schema Registry's storage topic. It must be compacted, or Kafka deletes the
+              # schemas after 7 days and Schema Registry refuses to start (issue #9). Schema
+              # Registry creates it this way itself, but only when it starts; if Kafka is
+              # recreated under a running Schema Registry, nothing else would. --if-not-exists
+              # leaves an existing topic as it is, so the policy is also set on its own.
+              create_topic _schemas 1 --config cleanup.policy=compact
+              kafka-configs --bootstrap-server "${BOOTSTRAP}" --entity-type topics \
+                --entity-name _schemas --alter --add-config cleanup.policy=compact
+
               echo "Resulting topics:"
               kafka-topics --bootstrap-server "${BOOTSTRAP}" --list
           resources:

@@ -73,6 +73,12 @@ then run `kubectl kustomize infra/k8s/overlays/school` to see the result.
 | `pf-config` | ConfigMap, empty | shared settings, filled in later |
 | `spark` | ServiceAccount, Role, RoleBinding | lets Spark drivers start executor pods |
 
+Topics come from the `kafka-create-topics` Job (`base/create-topic-job.yaml`) on every deploy;
+Kafka does not create topics on first use. **After Kafka is recreated** (its volume lost), run
+the Job again, then restart Schema Registry (`kubectl rollout restart deployment/schema-registry`)
+and register the schemas again: a Schema Registry that kept running still has the old schemas in
+memory, but not in the new `_schemas` topic.
+
 Schema Registry and ksqlDB wait for Kafka before starting, and the datanode waits for the
 namenode, so a cold start doesn't crash-loop. Every container runs as a non-root user, has CPU
 and memory limits, and has health checks.

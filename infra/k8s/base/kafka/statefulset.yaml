@@ -60,6 +60,13 @@ spec:
               value: "1"
             - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
               value: "1"
+            # Topics come only from the kafka-create-topics Job (create-topic-job.yaml) and from
+            # the tools that create their own (Schema Registry, ksqlDB, Connect). Otherwise a
+            # client asking for a missing topic gets one with the broker defaults (1 partition,
+            # delete after 7 days), which is how _schemas lost its compaction (issue #9).
+            # Same as compose.
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "false"
             - name: KAFKA_HEAP_OPTS
               value: -Xms512m -Xmx1g
             # A subfolder of the volume, so a lost+found folder at the volume root is never
