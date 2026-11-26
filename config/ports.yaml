@@ -43,4 +43,4 @@ ports:
       - [8.42, 55.455]
     weather:
       open_meteo: {lat: 55.45, lon: 8.20}
-      dmi_station_ids: ["06080"] # placeholder, verify the station id in the DMI station list
+      dmi_station_ids: ["06080"] # Esbjerg Lufthavn, 10.6 km from the port (DMI station list)

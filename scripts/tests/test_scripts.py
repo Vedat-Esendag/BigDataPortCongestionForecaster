@@ -51,7 +51,7 @@ def test_create_topics_script_and_schema_files_list_the_same_topics():
 
 
 def render(tmp_path, monkeypatch, **env):
-    for name in ("DMI_API_KEY", "ALERT_WEBHOOK_URL"):
+    for name in ("ALERT_WEBHOOK_URL",):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
@@ -118,25 +118,23 @@ def test_expansions_cover_every_port_and_dmi_only_where_a_station_exists():
 def test_connectors_that_need_a_missing_secret_are_skipped(tmp_path, monkeypatch, capsys):
     rendered = render(tmp_path, monkeypatch)
 
-    assert not [name for name in rendered if name.startswith("dmi-")]
     assert "webhook-sink" not in rendered
     assert {"redis-sink", "cassandra-sink", "hdfs-parquet-sink", "dma-csv-source"} <= set(rendered)
-    stderr = capsys.readouterr().err
-    assert "DMI_API_KEY" in stderr
-    assert "ALERT_WEBHOOK_URL" in stderr
+    assert "ALERT_WEBHOOK_URL" in capsys.readouterr().err
 
 
-def test_dmi_connector_is_per_station_and_keeps_the_secret_unexpanded(tmp_path, monkeypatch):
-    rendered = render(tmp_path, monkeypatch, DMI_API_KEY="x", ALERT_WEBHOOK_URL="http://h")
+def test_dmi_connector_is_per_station_and_needs_no_key(tmp_path, monkeypatch):
+    # DMI dropped API keys on 2 Dec 2025, so the connector renders without any secret.
+    rendered = render(tmp_path, monkeypatch)
 
     dmi = sorted(name for name in rendered if name.startswith("dmi-"))
     assert dmi == ["dmi-wind-dkebj-06080"]
     url = rendered["dmi-wind-dkebj-06080"]["camel.kamelet.http-source.url"]
-    assert url.endswith("api-key=${env:DMI_API_KEY}")  # resolved by the Connect worker, not here
+    assert "api-key" not in url
 
 
 def test_sink_templates_are_left_alone(tmp_path, monkeypatch):
-    rendered = render(tmp_path, monkeypatch, DMI_API_KEY="x", ALERT_WEBHOOK_URL="http://h")
+    rendered = render(tmp_path, monkeypatch, ALERT_WEBHOOK_URL="http://h")
 
     content = rendered["webhook-sink"]["connect.http.request.content"]
     assert "{{value.alert_level}}" in content

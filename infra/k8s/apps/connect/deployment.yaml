@@ -27,6 +27,26 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000 # makes the DMA volume writable for appuser
         fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        # FilePulse lists /data/dma/incoming and finds nothing if the folder doesn't exist yet,
+        # which it doesn't on a fresh volume. Same image as Connect, so nothing extra to pull.
+        - name: create-dma-dir
+          image: pf/kafka-connect
+          command: ["mkdir", "-p", "/data/dma/incoming"]
+          volumeMounts:
+            - name: dma-files
+              mountPath: /data/dma
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
       containers:
         - name: kafka-connect
           # Built from connect/Dockerfile. The overlay sets the tag: the git commit it was built
@@ -67,7 +87,7 @@ spec:
               value: http://schema-registry:8081
             - name: CONNECT_PLUGIN_PATH
               value: /usr/share/java,/usr/share/confluent-hub-components,/usr/share/connect-plugins
-            # Lets connector configs say ${env:DMI_API_KEY}, so secrets never sit in the config topic.
+            # Lets connector configs say ${env:ALERT_WEBHOOK_URL}, so secrets never sit in the config topic.
             - name: CONNECT_CONFIG_PROVIDERS
               value: env
             - name: CONNECT_CONFIG_PROVIDERS_ENV_CLASS
@@ -75,13 +95,7 @@ spec:
             - name: KAFKA_HEAP_OPTS
               value: -Xms512m -Xmx1g
             # Created by scripts/create_k8s_secrets.sh (make k8s-secrets). Optional, so Connect
-            # starts without them; only the connectors that need a key fail.
-            - name: DMI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: dmi-secret
-                  key: DMI_API_KEY
-                  optional: true
+            # starts without it; only the webhook sink needs it.
             - name: ALERT_WEBHOOK_URL
               valueFrom:
                 secretKeyRef:

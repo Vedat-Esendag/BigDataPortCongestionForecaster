@@ -8,7 +8,9 @@
     "camel.kamelet.http-source.url": "https://api.open-meteo.com/v1/forecast?latitude={{OPEN_METEO_LAT}}&longitude={{OPEN_METEO_LON}}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,pressure_msl,visibility&wind_speed_unit=kn&forecast_days=3&timezone=UTC",
     "camel.kamelet.http-source.period": "3600000",
 
-    "transforms": "Payload,Port,Product,Location,Source,FetchedAt,Key,KeyField",
+    "transforms": "ToString,Payload,Port,Product,Location,Source,FetchedAt,Key,KeyField,Schema",
+    "transforms.ToString.type": "org.apache.camel.kafkaconnector.transforms.CamelTypeConverterTransform$Value",
+    "transforms.ToString.target.type": "java.lang.String",
     "transforms.Payload.type": "org.apache.kafka.connect.transforms.HoistField$Value",
     "transforms.Payload.field": "payload",
     "transforms.Port.type": "org.apache.kafka.connect.transforms.InsertField$Value",
@@ -29,9 +31,14 @@
     "transforms.Key.fields": "port",
     "transforms.KeyField.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
     "transforms.KeyField.field": "port",
+    "transforms.Schema.type": "org.apache.kafka.connect.transforms.SetSchemaMetadata$Value",
+    "transforms.Schema.schema.name": "com.sdu.portcongestion.WeatherForecast",
 
     "key.converter": "org.apache.kafka.connect.storage.StringConverter",
     "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "http://schema-registry:8081"
+    "value.converter.schema.registry.url": "http://schema-registry:8081",
+    "value.converter.auto.register.schemas": "false",
+    "value.converter.use.latest.version": "true",
+    "value.converter.latest.compatibility.strict": "false"
   }
 }

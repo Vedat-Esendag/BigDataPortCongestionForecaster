@@ -18,8 +18,8 @@ JAVA_MAJOR := $(call java_major,$(JAVA_HOME))
 
 .PHONY: help up up-core down down-volumes topics schemas connectors test lint fmt \
         compose-config run-producer spark-package spark-live spark-lake spark-image spark-push images-push images-build dashboard-build download-dma clean \
-        k8s-diff k8s-apply k8s-check k8s-up k8s-secrets k8s-test-hdfs k8s-hdfs-report \
-        local-up local-down local-check \
+        k8s-diff k8s-apply k8s-check k8s-up k8s-secrets k8s-test-hdfs k8s-test-ksqldb k8s-hdfs-report \
+        local-up local-down local-check local-test-ksqldb \
         r1-package r1-up r1-ingest r1-order r1-arrivals r1-compare
 
 help: ## Show this help
@@ -58,6 +58,9 @@ k8s-up: k8s-apply k8s-check ## Deploy to the school cluster and wait until every
 k8s-test-hdfs: ## Restart the HDFS pods and check a test file survives (HDFS down 1-2 min)
 	infra/k8s/test-hdfs-restart.sh
 
+k8s-test-ksqldb: ## Restart the ksqlDB pod and check its queries come back (ksqlDB down ~30 s)
+	infra/k8s/test-ksqldb-restart.sh
+
 k8s-hdfs-report: ## HDFS health: datanodes, free space, block problems, size per lake zone (read-only)
 	infra/k8s/hdfs-report.sh
 
@@ -69,6 +72,9 @@ local-up: ## The whole stack on a local kind cluster, in one command (infra/k8s/
 
 local-check: ## Smoke test of the local kind cluster (read-only)
 	PF_CLUSTER=local infra/k8s/check.sh
+
+local-test-ksqldb: ## Restart test of ksqlDB on the local kind cluster
+	PF_CLUSTER=local infra/k8s/test-ksqldb-restart.sh
 
 local-down: ## Delete the local kind cluster and all its data
 	infra/k8s/local-up.sh down

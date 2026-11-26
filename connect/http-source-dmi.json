@@ -5,10 +5,12 @@
     "tasks.max": "1",
     "topics": "weather.observation",
 
-    "camel.kamelet.http-source.url": "https://opendataapi.dmi.dk/v2/metObs/collections/observation/items?stationId={{DMI_STATION_ID}}&parameterId=wind_speed&limit=100&api-key=${env:DMI_API_KEY}",
+    "camel.kamelet.http-source.url": "https://opendataapi.dmi.dk/v2/metObs/collections/observation/items?stationId={{DMI_STATION_ID}}&parameterId=wind_speed&limit=100",
     "camel.kamelet.http-source.period": "600000",
 
-    "transforms": "Payload,Port,Station,Source,FetchedAt,Key,KeyField",
+    "transforms": "ToString,Payload,Port,Station,Source,FetchedAt,Key,KeyField,Schema",
+    "transforms.ToString.type": "org.apache.camel.kafkaconnector.transforms.CamelTypeConverterTransform$Value",
+    "transforms.ToString.target.type": "java.lang.String",
     "transforms.Payload.type": "org.apache.kafka.connect.transforms.HoistField$Value",
     "transforms.Payload.field": "payload",
     "transforms.Port.type": "org.apache.kafka.connect.transforms.InsertField$Value",
@@ -26,9 +28,14 @@
     "transforms.Key.fields": "port",
     "transforms.KeyField.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
     "transforms.KeyField.field": "port",
+    "transforms.Schema.type": "org.apache.kafka.connect.transforms.SetSchemaMetadata$Value",
+    "transforms.Schema.schema.name": "com.sdu.portcongestion.WeatherObservation",
 
     "key.converter": "org.apache.kafka.connect.storage.StringConverter",
     "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "http://schema-registry:8081"
+    "value.converter.schema.registry.url": "http://schema-registry:8081",
+    "value.converter.auto.register.schemas": "false",
+    "value.converter.use.latest.version": "true",
+    "value.converter.latest.compatibility.strict": "false"
   }
 }

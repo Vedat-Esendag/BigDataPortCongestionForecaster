@@ -115,13 +115,13 @@ GitHub.
 
 ## Secrets
 
-Keys (aisstream.io, DMI, the alert webhook) go in `.env`, never in a manifest. Then:
+Keys (aisstream.io, the alert webhook) go in `.env`, never in a manifest. Then:
 
 ```bash
 make k8s-secrets
 ```
 
-This creates `aisstream-secret`, `dmi-secret` and `alert-webhook-secret` in our namespace, and
+This creates `aisstream-secret` and `alert-webhook-secret` in our namespace, and
 skips any key that's empty in `.env`. Run it again after changing a key.
 
 ## Stop

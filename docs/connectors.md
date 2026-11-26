@@ -75,6 +75,29 @@ Important for the smoke test: a sink can report `RUNNING` and still store nothin
 sink above). `make local-check` checks the states only; whether data arrives needs a record sent
 through, as above.
 
+## Second run (26 November 2026)
+
+`make local-up` from a clean clone on Windows 11 + WSL (Ubuntu 24.04), Docker Desktop. Each
+connector was then checked with real data, not only its state.
+
+| Connector | Result | What changed |
+|---|---|---|
+| `open-meteo-wind-dkebj`, `open-meteo-marine-dkebj` | **Works.** Records in `weather.forecast`, `payload` is the API's JSON | Camel's `CamelTypeConverterTransform$Value` turns the body into a String first (it was an `InputStreamCache`). Then the registry rejected Connect's own schema (`NAME_MISMATCH` against `com.sdu.portcongestion.WeatherForecast`), so `SetSchemaMetadata` sets the name, and `use.latest.version=true` with `auto.register.schemas=false` makes Connect write with our registered schema. Without that, Connect registers an all-optional v2, and Spark, which decodes with the `.avsc` file (`spark/common/avro_io.py`), would read those records wrong. Checked: new records carry the schema id of v1. |
+| `dmi-wind-dkebj-06080` | **Works.** Wind observations from Esbjerg Lufthavn in `weather.observation` | Same three fixes, and no API key: DMI dropped keys on 2 Dec 2025. The key is gone from the URL, `.env.example`, the Secret and the Connect deployment. |
+| `dma-csv-source` (FilePulse) | **Works.** A 3-row file in the exact DMA format (header `# Timestamp,...`, empty fields, `Unknown`) gave 3 records in `ais.history.raw`, 3 in `ais.history.position` and 2 in `ais.history.static` through the ksqlDB split | Nothing in the connector. Two problems around it: `/data/dma/incoming` didn't exist on a fresh volume (now made by an init container), and `kubectl cp` can't copy into the pod because the image has no `tar` (README now streams the file with `kubectl exec`). Not tested with a full 3 GB day yet. |
+| `hdfs-parquet-sink` | **Still fails**, same `getSubject is not supported` (Java 25.0.4 in the image) | Not fixed: see the proposal in [decisions.md](decisions.md#which-kafka-connect-connectors-stay-proposal-for-15). |
+| `cassandra-sink` | Still RUNNING with nothing written | Not fixed: it only reads the prediction topics, see the proposal. |
+| `redis-sink` | Works (as on 23 Nov) | |
+| `webhook-sink` | Not run (needs `ALERT_WEBHOOK_URL`) | |
+
+ksqlDB on the same run: `history_split.sql` and `alerts.sql` created their queries, and the
+history split turned test rows into positions and statics as expected. The pod restart test
+(`make local-test-ksqldb`) passes: the three queries are RUNNING again about 30 seconds after
+the pod is deleted, and a row sent afterwards is processed exactly once.
+
+From the list below, 1 (Camel output type), 3 (FilePulse), 5 (schema compatibility, for the
+weather topics) and 6 (DMI API) are now answered.
+
 ## Not verified yet
 
 None of these vendors states support for Kafka 4.x; they are built against the Connect API of

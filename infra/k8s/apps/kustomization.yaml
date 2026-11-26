@@ -3,7 +3,7 @@
 # the cluster can pull from (not chosen yet). Once they are:
 #   1. map the image names to the registry in overlays/school/kustomization.yaml (images:)
 #   2. add "- ../../apps" to the resources of overlays/school/kustomization.yaml
-#   3. make k8s-secrets (AISSTREAM_API_KEY, DMI_API_KEY, ALERT_WEBHOOK_URL), then make k8s-up
+#   3. make k8s-secrets (AISSTREAM_API_KEY, ALERT_WEBHOOK_URL), then make k8s-up
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

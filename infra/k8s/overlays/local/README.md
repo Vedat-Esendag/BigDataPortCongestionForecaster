@@ -34,17 +34,17 @@ first real run showed (details and error messages in
 | Connector | From | To | Status |
 |---|---|---|---|
 | `redis-sink` | `ship.prediction`, `port.outlook` | Redis | works, tested with a record |
-| `dma-csv-source` | DMA CSV files in the Connect pod's `/data/dma/incoming` | `ais.history.raw` | starts; not yet tested with a real file |
+| `dma-csv-source` | DMA CSV files in the Connect pod's `/data/dma/incoming` | `ais.history.raw` | works, tested with a small file in the DMA format |
 | `cassandra-sink` | predictions, outlooks, analytics, evaluation | Cassandra | **reports RUNNING but writes nothing** (open) |
 | `hdfs-parquet-sink` | every live and result topic | HDFS `/lake/raw` as Parquet | **fails**: Java 25 in the image (open) |
-| `open-meteo-wind-dkebj`, `open-meteo-marine-dkebj` | Open-Meteo API | `weather.forecast` | **fails**: Camel payload type (open) |
-| `dmi-wind-dkebj-<station>` | DMI API | `weather.observation` | only with `DMI_API_KEY` in `.env` |
+| `open-meteo-wind-dkebj`, `open-meteo-marine-dkebj` | Open-Meteo API | `weather.forecast` | works (fixed 26 Nov) |
+| `dmi-wind-dkebj-<station>` | DMI API | `weather.observation` | works (fixed 26 Nov), no key needed since DMI dropped API keys in Dec 2025 |
 | `webhook-sink` | `alerts` | your webhook | only with `ALERT_WEBHOOK_URL` in `.env` |
 
-Because of the open ones, `make local-up` currently ends with *"The local stack is up, with
-problems listed above"* and the smoke test lists the failing connectors. Everything else is up and
-usable. The ksqlDB alert query was tested end to end: an outlook with 4 late ships produced the
-alert `dkebj: late ships = 4` on the `alerts` topic.
+Because of the two open sinks, `make local-up` currently ends with *"The local stack is up, with
+problems listed above"*: the smoke test lists `hdfs-parquet-sink` as failing, and the Cassandra sink
+passes the check but stores nothing. Everything else is up and usable. Whether to fix or drop those
+two is proposed in [docs/decisions.md](../../../../docs/decisions.md#which-kafka-connect-connectors-stay-proposal-for-15).
 
 Not here yet, because they have no Kubernetes manifests: the Spark live job, the API and the
 dashboard. Run those from docker compose for now (see the main README).
@@ -70,8 +70,19 @@ chmod +x ~/.local/bin/kind      # ~/.local/bin must be on your PATH
 brew install kind
 ```
 
-On **Docker Desktop**, raise the memory under Settings → Resources (8 GB or more). OrbStack gives
-Docker enough by default.
+Install kubectl (Linux and WSL; on macOS `brew install kubectl`):
+
+```bash
+curl -fsSLo ~/.local/bin/kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x ~/.local/bin/kubectl
+```
+
+On **Docker Desktop for Mac**, raise the memory under Settings → Resources (8 GB or more).
+OrbStack gives Docker enough by default. On **Windows** (WSL 2 engine) there is no memory slider:
+Docker gets what WSL gets, by default half your RAM, set in `.wslconfig`
+([docs/setup.md](../../../../docs/setup.md#windows-through-wsl2)). On a 16 GB PC the default 8 GB
+is just enough, but close heavy programs first: with the stack running, Windows was down to 1.5
+GB free and WSL commands started timing out (see the table below).
 
 **Apple Silicon (M1 to M4):** the official Hadoop image exists for x86 only, and a kind cluster
 on an ARM Mac can't run x86 images. Everything else works; the two HDFS pods won't start, so the
@@ -147,12 +158,23 @@ Check everything again at any time (read-only): `make local-check`.
 
 ### Loading DMA history files
 
-The FilePulse connector reads CSV files from a volume in the Connect pod. Copy one unzipped day
-in, and it starts reading within 30 seconds:
+The FilePulse connector reads CSV files from `/data/dma/incoming`, a volume in the Connect pod.
+Copy one unzipped day in, and it starts reading within 30 seconds:
 
 ```bash
-kubectl cp data/dma/aisdk-2026-11-05.csv $(kubectl get pod -l app.kubernetes.io/name=kafka-connect -o name | cut -d/ -f2):/data/dma/incoming/
+f=aisdk-2026-11-05.csv
+kubectl exec -i deploy/kafka-connect -c kafka-connect -- \
+  bash -c "cat > /data/dma/incoming/$f.part && mv /data/dma/incoming/$f.part /data/dma/incoming/$f" \
+  < data/dma/incoming/$f
 ```
+
+Why not `kubectl cp`: it needs `tar` inside the container, and the Confluent 8 Connect image has
+none. The `.part` name keeps FilePulse from reading a half-copied file (it only lists `*.csv`).
+
+What comes out, per CSV row: one record in `ais.history.raw`, then the ksqlDB history split
+writes it to `ais.history.position` and, if the row carries real static data (IMO, destination
+or ETA), to `ais.history.static`. Tested with a 3-row file in the DMA format: 3 raw, 3 positions,
+2 statics (the third row had only `Unknown` static values).
 
 One unzipped day is about 4.5 GB. The volume holds 10 GB, so delete processed files.
 
@@ -180,6 +202,7 @@ docker start pf-control-plane     # the pods come back by themselves after a min
 | `hdfs-*` pods crash with `exec format error` | Apple Silicon, see above. |
 | A connector shows `FAILED` in the smoke test | `kubectl port-forward svc/kafka-connect 8083`, then open `http://localhost:8083/connectors/<name>/status`: the `trace` field has the reason. |
 | `ksqlDB queries` fails | The topics or schemas aren't there yet. Run `make local-up` again; the step retries for 5 minutes. |
+| WSL commands hang or fail with `Wsl/Service/WSAETIMEDOUT` (Windows) | Windows is out of memory; the stack takes about 6 GB inside WSL. Pause the cluster (`docker stop pf-control-plane`, data is kept), close other programs, then `docker start pf-control-plane`. |
 | Anything else | `kubectl get pods`, then `kubectl describe pod <name>` (events at the bottom) and `kubectl logs <name>`. |
 
 ## Differences from the school cluster

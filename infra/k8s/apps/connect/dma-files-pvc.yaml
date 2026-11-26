@@ -1,7 +1,10 @@
 # Where the FilePulse source reads the DMA daily CSV files (connect/filepulse-dma-source.json reads
-# /data/dma/incoming). Fill it from your machine, one unzipped day at a time:
-#   kubectl exec deploy/kafka-connect -- mkdir -p /data/dma/incoming
-#   kubectl cp data/dma/aisdk-2026-11-05.csv <kafka-connect pod>:/data/dma/incoming/
+# /data/dma/incoming, created by the init container). Fill it from your machine, one unzipped day
+# at a time. Not with kubectl cp: it needs tar in the container and the Connect image has none.
+#   f=aisdk-2026-11-05.csv
+#   kubectl exec -i deploy/kafka-connect -c kafka-connect -- \
+#     bash -c "cat > /data/dma/incoming/$f.part && mv /data/dma/incoming/$f.part /data/dma/incoming/$f" \
+#     < data/dma/incoming/$f
 # One unzipped day is about 4.5 GB, so remove processed files or raise the size.
 apiVersion: v1
 kind: PersistentVolumeClaim
