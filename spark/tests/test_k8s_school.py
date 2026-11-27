@@ -6,7 +6,8 @@ from pathlib import Path
 
 import yaml
 
-SCHOOL = Path(__file__).resolve().parents[2] / "infra" / "k8s" / "spark" / "school"
+K8S = Path(__file__).resolve().parents[2] / "infra" / "k8s"
+SCHOOL = K8S / "spark" / "school"
 
 
 def _pairs(path: Path, sep: str | None) -> dict[str, str]:
@@ -52,5 +53,74 @@ def test_deploying_the_school_folder_runs_no_one_off_job():
     kustomization = yaml.safe_load((SCHOOL / "kustomization.yaml").read_text())
     one_off = {path.name for path in (SCHOOL / "one-off").glob("job-*.yaml")}
 
-    assert one_off == {"job-smoke-count.yaml", "job-send-fixtures.yaml", "job-lake-check.yaml"}
+    assert one_off == {
+        "job-smoke-count.yaml",
+        "job-send-fixtures.yaml",
+        "job-lake-check.yaml",
+        "job-scratch-check.yaml",
+    }
     assert not [r for r in kustomization["resources"] if "job-" in r or "one-off" in r]
+
+
+SCRATCH = "/spark-local"
+
+
+def _scratch_settings(conf: dict[str, str], role: str) -> dict[str, str]:
+    prefix = f"spark.kubernetes.{role}.volumes.persistentVolumeClaim.spark-local-dir-1."
+    return {k.removeprefix(prefix): v for k, v in conf.items() if k.startswith(prefix)}
+
+
+def test_spark_pods_get_scratch_space_on_the_data_disk():
+    """#22: temp and shuffle files on on-demand hostpath-custom claims, owned by the driver."""
+    conf = _pairs(SCHOOL / "spark-defaults.conf", None)
+
+    for role in ("driver", "executor"):
+        assert _scratch_settings(conf, role) == {
+            "options.claimName": "OnDemand",
+            "options.storageClass": "hostpath-custom",
+            "options.sizeLimit": "20Gi",
+            "mount.path": SCRATCH,
+            "mount.readOnly": "false",
+        }
+        assert conf[f"spark.{role}.defaultJavaOptions"] == f"-Djava.io.tmpdir={SCRATCH}"
+    assert conf["spark.kubernetes.driver.ownPersistentVolumeClaim"] == "true"
+    assert conf["spark.kubernetes.driver.reusePersistentVolumeClaim"] == "true"
+    assert conf["spark.kubernetes.driverEnv.TMPDIR"] == SCRATCH
+    assert conf["spark.executorEnv.TMPDIR"] == SCRATCH
+
+
+def test_local_overlay_uses_the_same_scratch_mount_on_kinds_storage_class():
+    school = _pairs(SCHOOL / "spark-defaults.conf", None)
+    local = _pairs(K8S / "overlays" / "local" / "spark-defaults.conf", None)
+
+    for role in ("driver", "executor"):
+        expected = _scratch_settings(school, role)
+        # Spark creates an on-demand claim only when both are set, so neither may be left out.
+        expected["options.storageClass"] = "standard"
+        expected["options.sizeLimit"] = "5Gi"
+        assert _scratch_settings(local, role) == expected
+
+
+def _pod_specs(path: Path) -> list[dict]:
+    docs = [d for d in yaml.safe_load_all(path.read_text()) if d]
+    return [d["spec"]["template"]["spec"] for d in docs if d["kind"] in ("StatefulSet", "Job")]
+
+
+def test_spark_drivers_in_their_own_pod_mount_scratch_on_the_data_disk():
+    """The recorders (client mode) and lake-check (local mode) are pods Spark does not create."""
+    paths = [
+        SCHOOL / "recorder-ais-position.yaml",
+        SCHOOL / "recorder-ais-static.yaml",
+        SCHOOL / "one-off" / "job-lake-check.yaml",
+    ]
+    for path in paths:
+        (spec,) = _pod_specs(path)
+        (container,) = spec["containers"]
+        env = {e["name"]: e.get("value") for e in container["env"]}
+        mounts = {m["mountPath"]: m["name"] for m in container["volumeMounts"]}
+        volumes = {v["name"]: v for v in spec["volumes"]}
+
+        assert env["SPARK_LOCAL_DIRS"] == SCRATCH, path.name
+        assert env["TMPDIR"] == SCRATCH, path.name
+        claim = volumes[mounts[SCRATCH]]["ephemeral"]["volumeClaimTemplate"]["spec"]
+        assert claim["storageClassName"] == "hostpath-custom", path.name

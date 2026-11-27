@@ -88,6 +88,12 @@ spec:
               value: set-by-kustomize # replacements in kustomization.yaml
             - name: SPARK_CONF_DIR
               value: /opt/spark/conf-school
+            # The driver runs in this pod, which Spark does not create, so the spark-local-dir
+            # settings don't reach it: its temp and shuffle files go to the scratch volume below.
+            - name: SPARK_LOCAL_DIRS
+              value: /spark-local
+            - name: TMPDIR
+              value: /spark-local
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -110,6 +116,8 @@ spec:
             - name: spark-conf
               mountPath: /opt/spark/conf-school
               readOnly: true
+            - name: spark-local
+              mountPath: /spark-local
           # A failed streaming query ends the process, and the container restarts. This catches a
           # driver that is still running but no longer answers.
           livenessProbe:
@@ -133,3 +141,14 @@ spec:
         - name: spark-conf
           configMap:
             name: spark-school-conf
+        # Scratch space on the /data disk (#22), not the node's root disk. An ephemeral claim
+        # lives exactly as long as the pod: a restarted driver starts with an empty one.
+        - name: spark-local
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: hostpath-custom
+                resources:
+                  requests:
+                    storage: 5Gi

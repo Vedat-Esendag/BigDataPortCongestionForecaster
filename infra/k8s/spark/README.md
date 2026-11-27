@@ -3,9 +3,9 @@
 | Folder | What |
 |---|---|
 | `school/` | Spark settings and the two recorders, namespace `bd-gr-05`. Safe to deploy as a whole |
-| `school/one-off/` | The smoke job, the test sender and the lake check: test Jobs, applied one at a time by hand |
+| `school/one-off/` | The smoke job, the test sender, the lake check and the scratch check: test Jobs, applied one at a time by hand |
 | `school/image/` | The image for both (a kustomize Component), with the IMAGE setting |
-| `rehearsal/` | **Local OrbStack only.** The base Kafka, Schema Registry, HDFS and Spark RBAC, plus `school/` and `school/one-off/` with a local image |
+| `rehearsal/` | **Local OrbStack only.** The base Kafka, Schema Registry, HDFS and Spark RBAC, plus `school/` and `school/one-off/` with a local image, and a `hostpath-custom` storage class |
 
 `school/` adds only Spark objects. Kafka, Schema Registry, HDFS and the `spark` service account
 come from `overlays/school`. `school/` is not part of `deploy.sh` yet, and nothing here has been
@@ -26,6 +26,7 @@ lake. On the school cluster, run one with
 | `smoke-count` | Job, in `one-off/` | counts the fixture in the image, prints `rows 20` |
 | `send-fixtures` | Job, in `one-off/` | test sender: 20 rows to `ais.position`, 6 to `ais.static` |
 | `lake-check` | Job, in `one-off/` | rows, duplicates and offset gaps per dataset in `/lake/raw` |
+| `scratch-check` | Job, in `one-off/` | forces about 400 MB of shuffle files, to see them land on `/spark-local` |
 
 Two settings are marked in the files:
 - **IMAGE** (`school/image/kustomization.yaml`, one place for both folders):
@@ -37,6 +38,47 @@ Two settings are marked in the files:
   images, with the same tag (`infra/k8s/README.md`, Images).
 - **NETWORKPOLICY** (`school/spark-defaults.conf`): one line skips the NetworkPolicy that Spark
   4.2 creates in cluster mode, because the `spark` Role may not create it.
+
+### Scratch space on the /data disk (#22)
+
+The node's root disk is shared by every group and nearly full. A Spark job that writes its temp
+and shuffle files there can push the node into disk pressure and get every group's pods evicted.
+So no Spark pod here writes scratch data to its own filesystem:
+
+- **Pods Spark creates** (cluster-mode drivers, all executors) get a volume `spark-local-dir-1`
+  from `school/spark-defaults.conf` (SCRATCH): an on-demand claim of storage class
+  `hostpath-custom`, which lives on the node's `/data` disk, mounted at `/spark-local`. Spark
+  uses it instead of the default emptyDir and sets `SPARK_LOCAL_DIRS=/spark-local`.
+  `java.io.tmpdir` and `TMPDIR` point there too.
+- **Pods Spark does not create** (the recorders in client mode, `lake-check` in local mode) mount
+  their own `/spark-local`: an ephemeral `hostpath-custom` claim, which lives as long as the pod.
+
+The driver pod owns every claim of its job. Spark's own clean-up at the end of a job is refused,
+because it deletes by label (`deletecollection`), which the `spark` Role does not have and our
+token can't grant. Spark does remove its files, so the leftover claims are empty, but they stay
+until the driver pod is deleted. After a one-off job:
+
+```bash
+kubectl -n bd-gr-05 delete pod -l spark-role=driver,spark-job=<name>
+```
+
+That removes the driver, its executor pods and all their claims. Never put an ephemeral-storage
+limit on a Spark pod: the scratch files would count against it.
+
+What still goes to a pod's own filesystem, small and of fixed size: the JVM's
+`/tmp/hsperfdata_spark` (32 KB) and, on executors and cluster-mode drivers, a copy of the job's
+own jar or `--py-files` in the working directory.
+
+To check it (the rehearsal below, or on school in the #26 window): run the `scratch-check` Job
+and, while it runs, look inside an executor:
+
+```bash
+kubectl -n bd-gr-05 get pvc
+```
+
+```bash
+kubectl -n bd-gr-05 exec <executor pod> -- sh -c 'echo $SPARK_LOCAL_DIRS; df -h /spark-local; du -sh /spark-local'
+```
 
 ### Why the recorders are StatefulSets
 
@@ -142,6 +184,17 @@ kubectl --context orbstack -n bd-gr-05 get pods -l spark-role=driver,spark-job=s
 kubectl --context orbstack -n bd-gr-05 logs -l spark-role=driver,spark-job=smoke-count --tail=-1 | grep -E '^(rows|master|executors) '
 ```
 
+The scratch check (about 30 seconds) the same way, then delete its driver pod, which removes the
+claims:
+
+```bash
+kubectl --context orbstack apply -k infra/k8s/spark/rehearsal -l one-off=scratch-check
+```
+
+```bash
+kubectl --context orbstack -n bd-gr-05 delete pod -l spark-role=driver,spark-job=scratch-check
+```
+
 ### 5. Recorders
 
 Both recorders (StatefulSets and their Services):
@@ -213,7 +266,8 @@ as `Completed`; delete them with `-l spark-role=driver,spark-job=smoke-count`):
 kubectl --context orbstack delete -k infra/k8s/spark/rehearsal -l layer=spark-jobs
 ```
 
-Remove everything, the `bd-gr-05` namespace included (also what `overlays/local` created there):
+Remove everything, the `bd-gr-05` namespace and the `hostpath-custom` storage class included
+(also what `overlays/local` created there):
 
 ```bash
 kubectl --context orbstack delete -k infra/k8s/spark/rehearsal

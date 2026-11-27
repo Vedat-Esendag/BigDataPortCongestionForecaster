@@ -15,6 +15,7 @@ labels:
 
 resources:
   - namespace.yaml
+  - storageclass.yaml # hostpath-custom, the school's storage class name
   - ../../base/kafka
   - ../../base/schema-registry
   - ../../base/hdfs
@@ -41,6 +42,11 @@ replacements:
       - select:
           kind: Job
           name: smoke-count
+        fieldPaths:
+          - spec.template.spec.containers.[name=submit].env.[name=SPARK_IMAGE].value
+      - select:
+          kind: Job
+          name: scratch-check
         fieldPaths:
           - spec.template.spec.containers.[name=submit].env.[name=SPARK_IMAGE].value
       - select:
