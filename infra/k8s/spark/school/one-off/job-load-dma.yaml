@@ -1,0 +1,65 @@
+# scripts/load_dma.py: DMA daily zips -> /lake/landing/dma/day=<day>/aisdk-<day>.csv (#10).
+# Runs in the spark-jobs image already on the node, with the script from a ConfigMap, so the
+# school cluster pulls no new image. It reads each zip from aisdata.ais.dk with HTTP range
+# requests and streams the CSV to WebHDFS: nothing is written to the pod's disk (the root
+# filesystem is read-only). Re-running a day replaces it.
+#
+# First create the ConfigMap from the repo's script (kustomize can't read files outside this
+# folder), then apply the Job. Edit --from / --to below first: DMA publishes a day about 3 days
+# late, and a day that is not there yet ends the Job with exit code 3 (the other days still load).
+#   kubectl -n bd-gr-05 create configmap load-dma-script --from-file=load_dma.py=scripts/load_dma.py --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl apply -k infra/k8s/spark/school/one-off -l one-off=load-dma
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-dma
+  labels:
+    one-off: load-dma
+spec:
+  backoffLimit: 0 # a retry would reload every day
+  activeDeadlineSeconds: 21600 # 31 days at 1 to 3 minutes each, with room to spare
+  template:
+    metadata:
+      labels:
+        one-off: load-dma
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false # nothing here talks to the Kubernetes API
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      containers:
+        - name: load
+          image: spark-jobs
+          command: [python3, -B, /opt/load-dma/load_dma.py]
+          args:
+            - --from
+            - "2026-10-01"
+            - --to
+            - "2026-10-31"
+          env:
+            - name: WEBHDFS_URL
+              value: http://hdfs-namenode:9870
+            - name: HDFS_USER
+              value: spark # owns /lake
+          volumeMounts:
+            - name: script
+              mountPath: /opt/load-dma
+              readOnly: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true # proves the no-temp-files rule: any write fails
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: script
+          configMap:
+            name: load-dma-script

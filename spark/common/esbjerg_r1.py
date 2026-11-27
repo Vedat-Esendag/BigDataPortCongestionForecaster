@@ -97,6 +97,10 @@ PANDAS_NA_TOKENS = (
     "nan",
     "null",
 )
+# DMA daily files (jobs/clean_dma.py) also write "Unknown" (IMO, Destination, Callsign) and
+# "Undefined" (Ship type, position fixing device) for a missing value. "Unknown value" (the
+# navigational status) is a real AIS status and stays.
+DMA_NA_TOKENS = (*PANDAS_NA_TOKENS, "Unknown", "Undefined")
 
 RAW_CSV_DDL = ", ".join(f"`{c}` STRING" for c in CSV_COLUMNS)
 # pandas to_csv doubles a quote inside a quoted field (""), Spark's default escape is a backslash
@@ -131,12 +135,12 @@ STANDARDIZED_SCHEMA = T.StructType(
 
 
 # ---------------------------------------------------------------- lake paths and day lists
-def standardized_path() -> str:
-    return lake_path("standardized", "ais_positions/source=portarea")
+def standardized_path(source: str = "portarea") -> str:
+    return lake_path("standardized", f"ais_positions/source={source}")
 
 
-def quarantine_path() -> str:
-    return lake_path("quarantine", "ais_positions/source=portarea")
+def quarantine_path(source: str = "portarea") -> str:
+    return lake_path("quarantine", f"ais_positions/source={source}")
 
 
 def curated_path(name: str) -> str:
@@ -180,9 +184,27 @@ def read_lake(
     return spark.read.schema(schema).parquet(path)
 
 
+def replace_day_partitions(spark: SparkSession, df: DataFrame, base: str, days: list[str]) -> None:
+    """Make `base/day=<d>` hold exactly the rows of `df` for every selected day d.
+
+    Each selected day's folder is deleted first, then the new rows are appended, so a day whose
+    new result is empty (no rejects any more) is left with no folder and no stale rows. Days
+    that were not selected are not touched. Dynamic partition overwrite alone would keep a day
+    that the new result has no rows for.
+    """
+    jvm = spark.sparkContext._jvm
+    conf = spark.sparkContext._jsc.hadoopConfiguration()
+    for d in days:
+        folder = jvm.org.apache.hadoop.fs.Path(f"{base.rstrip('/')}/day={d}")
+        fs = folder.getFileSystem(conf)
+        if fs.exists(folder) and not fs.delete(folder, True):
+            raise RuntimeError(f"could not delete {folder}")
+    df.write.mode("append").partitionBy("day").parquet(base)
+
+
 # ---------------------------------------------------------------- ingestion
-def _na_to_null(c: Column) -> Column:
-    return F.when(c.isin(*PANDAS_NA_TOKENS), F.lit(None).cast("string")).otherwise(c)
+def _na_to_null(c: Column, tokens: Sequence[str] = PANDAS_NA_TOKENS) -> Column:
+    return F.when(c.isin(*tokens), F.lit(None).cast("string")).otherwise(c)
 
 
 def parse_lines(lines: DataFrame) -> DataFrame:

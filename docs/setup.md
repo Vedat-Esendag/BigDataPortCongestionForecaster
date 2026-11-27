@@ -243,7 +243,6 @@ less, so start there and add profiles as you need them.
 | `uv: command not found` or `nvm: command not found` right after installing | the new `PATH` is not loaded yet | open a new terminal |
 | `port is already allocated` | another program uses 8080, 8081, 8085, 9092 or similar | stop that program, or `make down` if it is an old run of this stack |
 | `namenode` is slow or fails to start on an ARM machine | the Hadoop image only exists for amd64, so it runs emulated | wait longer; on Apple Silicon OrbStack or Docker Desktop's Rosetta setting helps |
-| `make download-dma` cannot write to `data/dma` (Linux) | Docker created the folder as root | `sudo chown -R $USER data`. `make up` now creates the folder first, so this only affects old runs |
 | Everything is slow on Windows | the project is under `/mnt/c` | move it into the Linux home folder |
 | WSL commands fail with `Wsl/Service/WSAETIMEDOUT` while the stack runs (Windows) | Windows itself is out of memory (16 GB PC, stack plus browser and IDE) | close programs or pause the stack (`make down`, or `docker stop pf-control-plane` for `make local-up`); lower `memory=` in `.wslconfig` if Windows needs more |
 | Docker Desktop shows "An unexpected error occurred" right after starting, log mentions `dockerInference` or `engine.sock` | stale socket files left by an earlier crash, which Windows won't let Docker delete | quit Docker Desktop, rename `%LOCALAPPDATA%\Docker\run` and `%LOCALAPPDATA%\docker-secrets-engine` (add `.old`), start Docker again; it recreates both |

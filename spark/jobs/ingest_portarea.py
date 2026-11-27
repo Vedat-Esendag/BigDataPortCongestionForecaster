@@ -66,24 +66,6 @@ def check_headers(lines: DataFrame) -> None:
         raise SystemExit(f"unexpected header: {bad}")
 
 
-def replace_day_partitions(spark: SparkSession, df: DataFrame, base: str, days: list[str]) -> None:
-    """Make `base/day=<d>` hold exactly the rows of `df` for every selected day d.
-
-    Each selected day's folder is deleted first, then the new rows are appended, so a day whose
-    new result is empty (no rejects any more) is left with no folder and no stale rows. Days
-    that were not selected are not touched. Dynamic partition overwrite alone would keep a day
-    that the new result has no rows for.
-    """
-    jvm = spark.sparkContext._jvm
-    conf = spark.sparkContext._jsc.hadoopConfiguration()
-    for d in days:
-        folder = jvm.org.apache.hadoop.fs.Path(f"{base.rstrip('/')}/day={d}")
-        fs = folder.getFileSystem(conf)
-        if fs.exists(folder) and not fs.delete(folder, True):
-            raise RuntimeError(f"could not delete {folder}")
-    df.write.mode("append").partitionBy("day").parquet(base)
-
-
 def manifest(lines: DataFrame, std: DataFrame, quar: DataFrame) -> dict:
     """Per-day counts. rows_in is counted from the raw lines, independently of the parse."""
     raw = lines.groupBy("day").agg(
@@ -156,10 +138,10 @@ def main() -> None:
     typed = r1.parse_lines(lines)
     std, quar = r1.split_rejects(typed)
     t1 = time.time()
-    replace_day_partitions(spark, std, r1.standardized_path(), days)
+    r1.replace_day_partitions(spark, std, r1.standardized_path(), days)
     print(f"[ingest] standardized written in {time.time() - t1:.1f} s")
     t1 = time.time()
-    replace_day_partitions(spark, quar, r1.quarantine_path(), days)
+    r1.replace_day_partitions(spark, quar, r1.quarantine_path(), days)
     print(f"[ingest] quarantine written in {time.time() - t1:.1f} s")
 
     # count from what was written, so the manifest describes the lake, not the plan

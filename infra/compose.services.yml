@@ -124,7 +124,7 @@ services:
       CONNECT_CONFIG_PROVIDERS: env
       CONNECT_CONFIG_PROVIDERS_ENV_CLASS: org.apache.kafka.common.config.provider.EnvVarConfigProvider
     volumes:
-      - ../data/dma:/data/dma # DMA CSV files for the FilePulse source (scripts/download_dma.py)
+      - ../data/dma:/data/dma # unzipped DMA CSV files for the FilePulse source, put there by hand
     healthcheck:
       # The Connect image (CP 8) has no curl, so the request is sent from bash.
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8083 && printf 'GET /connectors HTTP/1.0\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"]

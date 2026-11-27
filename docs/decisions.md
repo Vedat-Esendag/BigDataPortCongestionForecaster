@@ -93,8 +93,8 @@ the pyspark pin and `versions.env` drift apart.
   topics, and the HDFS sink lands them in the lake. One path for live and historical data; Spark
   can replay history through the same code. Cost: DMA days are large (a CSV of 1 to 3 GB), a
   single connector task reads a file in order, and the history split adds a ksqlDB step.
-- *Straight into HDFS:* `scripts/download_dma.py` plus `hdfs dfs -put` into `/lake/landing`, then a
-  Spark batch job cleans them into `standardized`. Faster and simpler for bulk history; it gives up
+- *Straight into HDFS:* `scripts/load_dma.py` streams each day into `/lake/landing/dma`, then
+  `spark/jobs/clean_dma.py` cleans the Esbjerg rows into `standardized` (#10). Faster and simpler for bulk history; it gives up
   replaying history through Kafka.
 - Both can coexist. Decide based on how much history training needs and whether replaying through
   Kafka is a course goal. The scaffold supports either.
