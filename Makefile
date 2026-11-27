@@ -17,7 +17,7 @@ endif
 JAVA_MAJOR := $(call java_major,$(JAVA_HOME))
 
 .PHONY: help up up-core down down-volumes topics schemas connectors test lint fmt \
-        compose-config run-producer spark-package spark-live spark-lake spark-image spark-push images-push images-build dashboard-build download-dma clean \
+        compose-config run-producer spark-package spark-live spark-lake spark-image spark-push images-push images-build dashboard-build clean \
         k8s-diff k8s-apply k8s-check k8s-up k8s-secrets k8s-test-hdfs k8s-test-ksqldb k8s-hdfs-report \
         local-up local-down local-check local-test-ksqldb \
         r1-package r1-up r1-ingest r1-order r1-arrivals r1-compare
@@ -247,9 +247,6 @@ images-build: ## Build IMAGES for linux/amd64 into local Docker as <name>:<git s
 
 dashboard-build: ## Type-check and build the dashboard
 	cd services/dashboard && npm ci && npm run build
-
-download-dma: ## Download DMA files: make download-dma START=2026-09-01 END=2026-09-02
-	python3 scripts/download_dma.py --start $(START) --end $(END)
 
 clean: ## Remove build and cache directories
 	rm -rf spark/dist services/dashboard/dist .ruff_cache .pytest_cache

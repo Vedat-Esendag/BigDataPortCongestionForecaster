@@ -3,7 +3,7 @@
 | Folder | What |
 |---|---|
 | `school/` | Spark settings and the two recorders, namespace `bd-gr-05`. Safe to deploy as a whole |
-| `school/one-off/` | The smoke job, the test sender, the lake check and the scratch check: test Jobs, applied one at a time by hand |
+| `school/one-off/` | The smoke job, the test sender, the lake check, the scratch check and the DMA loader and cleaning job: one-off Jobs, applied one at a time by hand |
 | `school/image/` | The image for both (a kustomize Component), with the IMAGE setting |
 | `rehearsal/` | **Local OrbStack only.** The base Kafka, Schema Registry, HDFS and Spark RBAC, plus `school/` and `school/one-off/` with a local image, and a `hostpath-custom` storage class |
 
@@ -27,6 +27,8 @@ lake. On the school cluster, run one with
 | `send-fixtures` | Job, in `one-off/` | test sender: 20 rows to `ais.position`, 6 to `ais.static` |
 | `lake-check` | Job, in `one-off/` | rows, duplicates and offset gaps per dataset in `/lake/raw` |
 | `scratch-check` | Job, in `one-off/` | forces about 400 MB of shuffle files, to see them land on `/spark-local` |
+| `load-dma` | Job, in `one-off/` | DMA zips to `/lake/landing/dma`, script from the `load-dma-script` ConfigMap |
+| `clean-dma` | Job, in `one-off/` | landing CSVs to the Esbjerg rows in `/lake/standardized/ais_positions/source=dma` |
 
 Two settings are marked in the files:
 - **IMAGE** (`school/image/kustomization.yaml`, one place for both folders):
@@ -79,6 +81,43 @@ kubectl -n bd-gr-05 get pvc
 ```bash
 kubectl -n bd-gr-05 exec <executor pod> -- sh -c 'echo $SPARK_LOCAL_DIRS; df -h /spark-local; du -sh /spark-local'
 ```
+
+### DMA days (#10)
+
+Load the days, then clean them. Edit `--from` / `--to` in both Job files first. DMA publishes a
+day about 3 days late; a day that is not there yet is skipped and the Job ends with exit code 3.
+The loader runs in the image already on the node, so its script comes from a ConfigMap
+(kustomize can't read `scripts/`):
+
+```bash
+kubectl -n bd-gr-05 create configmap load-dma-script --from-file=load_dma.py=scripts/load_dma.py --dry-run=client -o yaml | kubectl apply -f -
+```
+
+```bash
+kubectl apply -k infra/k8s/spark/school/one-off -l one-off=load-dma
+```
+
+```bash
+kubectl -n bd-gr-05 logs -f job/load-dma
+```
+
+The cleaning job needs an image with `spark/jobs/clean_dma.py` (IMAGE setting above):
+
+```bash
+kubectl apply -k infra/k8s/spark/school/one-off -l one-off=clean-dma
+```
+
+```bash
+kubectl -n bd-gr-05 logs -f -l spark-role=driver,spark-job=clean-dma | grep clean-dma
+```
+
+```bash
+kubectl -n bd-gr-05 delete pod -l spark-role=driver,spark-job=clean-dma
+```
+
+Each day's load log (rows in, kept, quarantined by reason, MMSI, seconds, shuffle) is a JSON
+line in `/lake/standardized/_loads/source=dma/day=<day>/`. Numbers for 2026-10-01 are in
+`docs/spark-milestones.md` (D1).
 
 ### Why the recorders are StatefulSets
 

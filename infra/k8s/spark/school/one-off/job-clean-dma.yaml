@@ -1,0 +1,99 @@
+# spark/jobs/clean_dma.py in cluster mode (#10): DMA landing CSVs -> Esbjerg rows in
+# /lake/standardized/ais_positions/source=dma, bad rows to /lake/quarantine, a load log per day
+# in /lake/standardized/_loads/source=dma. Run it after load-dma, for the same days (edit
+# --from / --to). Days without a landing file are skipped (exit code 3).
+#
+# Sizes come from the local run of 2026-10-01 (docs/spark-milestones.md, D1): a day is one
+# 3.8 GB CSV read in about 30 tasks of 128 MB, and only about 380 thousand rows (46 MB) reach a
+# shuffle, so 1 GiB per executor is enough. Locally 1 and 2 executors took the same time (59 s);
+# whether more help on school is not measured yet. Spark's scratch files go
+# to the on-demand /spark-local claims (spark-defaults.conf, #22). After the run, delete the
+# driver pod so its claims go:
+#   kubectl -n bd-gr-05 delete pod -l spark-role=driver,spark-job=clean-dma
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: clean-dma
+  labels:
+    one-off: clean-dma
+spec:
+  backoffLimit: 0 # a failed submit must not start more drivers
+  activeDeadlineSeconds: 14400
+  template:
+    metadata:
+      labels:
+        spark-job: clean-dma
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      securityContext: # the image says USER spark by name; Kubernetes needs the number
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      containers:
+        - name: submit
+          image: spark-jobs
+          command: [/opt/spark/bin/spark-submit]
+          args:
+            - --name
+            - clean-dma
+            - --conf
+            - spark.kubernetes.container.image=$(SPARK_IMAGE)
+            - --conf
+            - spark.kubernetes.driverEnv.HDFS_URI=$(HDFS_URI)
+            - --conf
+            - spark.driver.memory=1g
+            - --conf
+            - spark.executor.memory=1g
+            - --conf
+            - spark.executor.instances=2
+            - --conf
+            - spark.executor.cores=2
+            - --conf
+            - spark.kubernetes.executor.request.cores=1
+            - --conf
+            - spark.kubernetes.executor.limit.cores=2
+            - --conf
+            - spark.driver.extraJavaOptions=-Duser.timezone=UTC
+            - --conf
+            - spark.executor.extraJavaOptions=-Duser.timezone=UTC
+            - --conf
+            - spark.kubernetes.driver.label.spark-job=clean-dma
+            - --conf
+            - spark.kubernetes.executor.label.spark-job=clean-dma
+            - --py-files
+            - local:///opt/app/spark/dist/common.zip
+            - local:///opt/app/spark/jobs/clean_dma.py
+            - --from
+            - "2026-10-01"
+            - --to
+            - "2026-10-31"
+          env:
+            - name: SPARK_IMAGE
+              value: set-by-kustomize # replacements in kustomization.yaml
+            - name: SPARK_CONF_DIR
+              value: /opt/spark/conf-school
+            - name: HDFS_URI # handed to the driver pod above; lake_path() reads it
+              valueFrom:
+                configMapKeyRef:
+                  name: spark-school-env
+                  key: HDFS_URI
+          volumeMounts:
+            - name: spark-conf
+              mountPath: /opt/spark/conf-school
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: spark-conf
+          configMap:
+            name: spark-school-conf

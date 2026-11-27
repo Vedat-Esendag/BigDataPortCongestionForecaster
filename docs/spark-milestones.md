@@ -16,6 +16,7 @@ Each milestone: plan, implement, show real output, review, commit.
 | R1 | The October Esbjerg waiting analysis rebuilt in Spark, compared event by event | Done, not committed |
 | R2 | Method fixes: repeat visits, ETA at a fixed lead time, the R1 decisions to review | Planned |
 | R3 | Fresh full DMA days, cut to Esbjerg in Spark, then the R1 pipeline on them | Planned |
+| D1 | DMA days into the lake: loader and cleaning job (#10) | Built, one day proven locally (27 Nov) |
 | PR | One pull request to `main` | After S3a and S4, or once S3b runs |
 
 ## S1a: Fix the Spark image (done)
@@ -541,6 +542,63 @@ These are choices in the October method, ported as they are. Some may well stay.
 - **ETA at a fixed lead time**: compare the ETA a ship reported a fixed time before entry (for
   example 24 h and 6 h), instead of the last one before entry, which is close to the answer
 - The decisions above, each with the change in numbers before and after
+
+## D1: DMA days into the lake (#10)
+
+Two steps, each a one-off Job in `infra/k8s/spark/school/one-off/`:
+
+1. `scripts/load_dma.py` (Job `load-dma`): each DMA zip, read with HTTP range requests, is streamed
+   unzipped to WebHDFS as `/lake/landing/dma/day=<day>/aisdk-<day>.csv`. A hidden temp file plus a
+   rename with overwrite replaces a day in one step. Nothing touches the pod's disk (read-only root
+   filesystem). A day DMA has not published yet (404) is skipped, exit code 3.
+2. `spark/jobs/clean_dma.py` (Job `clean-dma`, cluster mode): the Esbjerg rows of each day go to
+   `/lake/standardized/ais_positions/source=dma/day=<day>/` in the schema of the October files
+   (`STANDARDIZED_SCHEMA`). Bad rows go to `/lake/quarantine/ais_positions/source=dma/` with
+   their reason, and a load log per day to `/lake/standardized/_loads/source=dma/day=<day>/`.
+   The rules are in `spark/common/dma.py`. Vessel rows (Class A or B) inside the
+   `config/ports.yaml` box are picked before anything shuffles. Rows without a possible position
+   are kept only for ships seen in the box that day (a broadcast semi-join).
+
+Quarantine reasons: `mmsi_invalid` (not 9 digits starting 2 to 7), `position_impossible`
+(missing, unparsable, or lat 91 / lon 181), `ts_unparsable`, `duplicate`. `line_no` is the row's
+position among the day's port rows in file order, as in the portarea files.
+
+**What a duplicate is:** the full row. Two rows of the same day are duplicates only when all 26
+DMA columns are equal as text: `# Timestamp`, `Type of mobile`, `MMSI`, `Latitude`, `Longitude`,
+`Navigational status`, `ROT`, `SOG`, `COG`, `Heading`, `IMO`, `Callsign`, `Name`, `Ship type`,
+`Cargo type`, `Width`, `Length`, `Type of position fixing device`, `Draught`, `Destination`,
+`ETA`, `Data source type`, `A`, `B`, `C`, `D`. The first one in file order is kept, the later ones
+go to quarantine. These are the same message received more than once.
+
+Two different positions (or any other difference, even only in `Data source type`) from the same
+ship in the same second are **not** duplicates: both are kept in `standardized`. The arrivals
+analysis then keeps the first of them in file order (`class_a_thinned`, the same rule as for the
+October files) and reports them as ties. On 2026-10-01, 1,114 (MMSI, second) pairs of the kept
+rows have more than one row. For Class A that is 1,105 pairs with 1,115 extra rows; 205 of them
+disagree on the navigational status or SOG.
+
+### 2026-10-01 on the local OrbStack rehearsal (27 Nov)
+
+| | |
+|---|---|
+| Landing CSV | 3,840,321,158 bytes, 21,175,402 rows, loaded in 23.0 s (1 HEAD + 4 range GETs) |
+| Rows in / vessel rows / in the box | 21,175,402 / 19,482,462 / 378,643 |
+| Port rows (box + 45 rows without position of ships in the box) | 378,688 |
+| Kept | 268,160 (6,208 Class B), 87 MMSI |
+| Quarantined | 110,528: duplicate 101,163, mmsi_invalid 24,234, position_impossible 45, ts_unparsable 0 (a row can have two reasons) |
+| Invalid MMSI | `2190045` (7 digits, 23,314 rows) and `111219516` (a SAR aircraft number sent as Class A, 920 rows) |
+| Parquet | 7.4 MB standardized, 3.1 MB quarantine |
+| Shuffle | 46.4 MB, 380,875 records: only the port rows (the 3.97 GB read is narrow) |
+| Cleaning runtime | 58.4 s with 2 executors, 59.2 s with 1 (1 GiB, 2 cores each; one local datanode) |
+| Arrivals analysis, unchanged, on this day | 13 arrivals (7 large, all 7 with an ETA), 43.8 s |
+
+Ships with no ship type on any kept row: 7 of 87; with no name: 2. The analysis takes both
+from other rows of the same ship, as for the October files.
+
+The Esbjerg box (`config/ports.yaml`) covers the anchorage. Over 1, 8, 15, 22 and 29 October, the
+ships lying still or at anchor off Esbjerg were at 55.40 to 55.45 N, 8.10 to 8.20 E, inside the
+box. The still ships outside it were Rømø harbour, Hvide Sande, the Horns Rev 1 wind farm
+transponder and anchoring off Rømø / Lister Dyb.
 
 ## R3: fresh full DMA days, planned
 

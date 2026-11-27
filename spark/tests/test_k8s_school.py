@@ -58,6 +58,8 @@ def test_deploying_the_school_folder_runs_no_one_off_job():
         "job-send-fixtures.yaml",
         "job-lake-check.yaml",
         "job-scratch-check.yaml",
+        "job-load-dma.yaml",
+        "job-clean-dma.yaml",
     }
     assert not [r for r in kustomization["resources"] if "job-" in r or "one-off" in r]
 
@@ -124,3 +126,32 @@ def test_spark_drivers_in_their_own_pod_mount_scratch_on_the_data_disk():
         assert env["TMPDIR"] == SCRATCH, path.name
         claim = volumes[mounts[SCRATCH]]["ephemeral"]["volumeClaimTemplate"]["spec"]
         assert claim["storageClassName"] == "hostpath-custom", path.name
+
+
+def test_the_dma_loader_runs_from_a_configmap_and_writes_nothing_to_its_disk():
+    (spec,) = _pod_specs(SCHOOL / "one-off" / "job-load-dma.yaml")
+    (container,) = spec["containers"]
+    script = container["command"][-1]
+    volumes = {v["name"]: v for v in spec["volumes"]}
+    (mount,) = [m for m in container["volumeMounts"] if script.startswith(m["mountPath"])]
+
+    assert container["image"] == "spark-jobs"  # the image already on the node
+    assert volumes[mount["name"]]["configMap"]["name"] == "load-dma-script"
+    assert container["securityContext"]["readOnlyRootFilesystem"] is True
+    assert spec["automountServiceAccountToken"] is False
+
+
+def test_the_dma_cleaning_job_runs_in_cluster_mode_with_explicit_sizes():
+    (spec,) = _pod_specs(SCHOOL / "one-off" / "job-clean-dma.yaml")
+    (container,) = spec["containers"]
+    args = container["args"]
+    confs = dict(args[i + 1].split("=", 1) for i, a in enumerate(args[:-1]) if a == "--conf")
+
+    assert spec["serviceAccountName"] == "spark"
+    assert "--deploy-mode" not in args  # cluster mode from spark-defaults.conf
+    assert {"spark.driver.memory", "spark.executor.memory", "spark.executor.instances"} <= set(
+        confs
+    )
+    assert confs["spark.kubernetes.driverEnv.HDFS_URI"] == "$(HDFS_URI)"
+    assert args[args.index("--py-files") + 1] == "local:///opt/app/spark/dist/common.zip"
+    assert "local:///opt/app/spark/jobs/clean_dma.py" in args

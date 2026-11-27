@@ -336,8 +336,6 @@ def test_eta_at_entry_uses_quarantined_rows_and_keeps_arrivals_without_eta(spark
 def test_ingest_replaces_selected_days_completely(spark, tmp_path):
     """A day that goes from rejects to no rejects keeps no stale rows in either zone; days that
     were not selected keep theirs."""
-    from jobs.ingest_portarea import replace_day_partitions
-
     std_path, quar_path = f"file://{tmp_path}/std", f"file://{tmp_path}/quar"
 
     def lines(day, values):
@@ -349,8 +347,8 @@ def test_ingest_replaces_selected_days_completely(spark, tmp_path):
         for part in parts[1:]:
             frame = frame.unionByName(part)
         good, bad = r1.split_rejects(r1.parse_lines(frame))
-        replace_day_partitions(spark, good, std_path, days)
-        replace_day_partitions(spark, bad, quar_path, days)
+        r1.replace_day_partitions(spark, good, std_path, days)
+        r1.replace_day_partitions(spark, bad, quar_path, days)
 
     def counts(path, schema):
         df = r1.read_lake(spark, path, schema)

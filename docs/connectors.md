@@ -120,8 +120,9 @@ validate every config before anything is deployed. Known weak spots, in order of
    parameter and the parameter id `wind_speed` in `connect/http-source-dmi.json` come from
    third-party client libraries. Check them against DMI's documentation; the station ids in
    `config/ports.yaml` are placeholders too.
-7. **DMA download URL** in `scripts/download_dma.py` (the DMA host did not answer from the
-   development sandbox). Override with `--url-template` if it is wrong.
+7. **DMA download URL.** Checked on 24 Nov: `http://aisdata.ais.dk/aisdk-{date}.zip`, plain
+   HTTP at the bucket root (HTTPS resets the connection). `scripts/load_dma.py` uses it and loads
+   the days straight into HDFS; override with `--url-template`.
 8. **Platform licenses.** Schema Registry and ksqlDB are understood to be under the Confluent
    Community License (free to use, not to resell as a service); this was not re-checked.
    The Redis 8 license was not checked either (it is source-available, free for this use).

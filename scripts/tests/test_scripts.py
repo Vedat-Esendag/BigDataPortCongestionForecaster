@@ -1,16 +1,13 @@
-"""The helper scripts: schema registration (offline parts), connector rendering, DMA download."""
+"""The helper scripts: schema registration (offline parts) and connector rendering."""
 
 from __future__ import annotations
 
 import json
 import re
-import zipfile
-from datetime import date
 from pathlib import Path
 
 import pytest
 
-import download_dma
 import register_schemas
 import render_connectors
 
@@ -212,43 +209,3 @@ def test_cassandra_mappings_only_use_columns_that_exist():
             continue
         columns = {pair.split("=")[0].strip() for pair in mapping.split(",")}
         assert columns <= tables[match.group(1)], (match.group(1), columns - tables[match.group(1)])
-
-
-# --- download_dma -----------------------------------------------------------------------------
-
-
-def test_daterange_is_inclusive():
-    days = list(download_dma.daterange(date(2026, 9, 29), date(2026, 10, 2)))
-
-    assert [d.isoformat() for d in days] == ["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02"]
-
-
-def make_zip(path: Path, members: dict[str, str]) -> None:
-    with zipfile.ZipFile(path, "w") as archive:
-        for name, text in members.items():
-            archive.writestr(name, text)
-
-
-def test_verify_and_extract_counts_rows_without_the_header(tmp_path):
-    archive = tmp_path / "day.zip"
-    make_zip(archive, {"aisdk-2026-09-01.csv": "h1,h2\na,1\nb,2\nc,3\n"})
-
-    csv_path, rows = download_dma.verify_and_extract(archive, tmp_path / "out")
-
-    assert rows == 3
-    assert csv_path.read_text().startswith("h1,h2")
-
-
-def test_a_zip_without_a_csv_is_rejected(tmp_path):
-    archive = tmp_path / "day.zip"
-    make_zip(archive, {"readme.txt": "no data here"})
-
-    with pytest.raises(zipfile.BadZipFile):
-        download_dma.verify_and_extract(archive, tmp_path / "out")
-
-
-def test_url_template_placeholders():
-    url = download_dma.DEFAULT_TEMPLATE.format(date="2026-09-01", year=2026)
-
-    assert "2026-09-01" in url
-    assert "/2026/" in url
