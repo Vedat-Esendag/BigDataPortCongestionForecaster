@@ -39,6 +39,10 @@ spec:
           env:
             - name: SPARK_CONF_DIR
               value: /opt/spark/conf-school
+            - name: SPARK_LOCAL_DIRS # local mode: Spark's temp files go to the scratch volume
+              value: /spark-local
+            - name: TMPDIR
+              value: /spark-local
           envFrom:
             - configMapRef:
                 name: spark-school-env # HDFS_URI
@@ -46,6 +50,8 @@ spec:
             - name: spark-conf
               mountPath: /opt/spark/conf-school
               readOnly: true
+            - name: spark-local
+              mountPath: /spark-local
           resources:
             requests:
               cpu: 250m
@@ -61,3 +67,12 @@ spec:
         - name: spark-conf
           configMap:
             name: spark-school-conf
+        - name: spark-local # scratch on the /data disk (#22), removed with the pod
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: hostpath-custom
+                resources:
+                  requests:
+                    storage: 1Gi

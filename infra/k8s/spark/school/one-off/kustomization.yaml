@@ -1,4 +1,5 @@
-# One-off test Jobs for the school cluster: the smoke job, the test sender and the lake check.
+# One-off test Jobs for the school cluster: the smoke job, the test sender, the lake check and the
+# scratch-space check.
 # Kept out of ../ on purpose, so deploying ../ never runs them (send-fixtures would put test rows
 # into the real ais.position and ais.static topics). Apply one at a time, by hand:
 #   kubectl apply -k infra/k8s/spark/school/one-off -l one-off=<name>
@@ -19,11 +20,12 @@ resources:
   - job-smoke-count.yaml
   - job-send-fixtures.yaml
   - job-lake-check.yaml
+  - job-scratch-check.yaml
 
 components:
   - ../image # the IMAGE setting, shared with ../
 
-# The smoke job's executors run the same image as its driver (see ../kustomization.yaml).
+# The executors of the cluster-mode Jobs run the same image as their driver (see ../kustomization.yaml).
 replacements:
   - source:
       kind: Job
@@ -33,5 +35,10 @@ replacements:
       - select:
           kind: Job
           name: smoke-count
+        fieldPaths:
+          - spec.template.spec.containers.[name=submit].env.[name=SPARK_IMAGE].value
+      - select:
+          kind: Job
+          name: scratch-check
         fieldPaths:
           - spec.template.spec.containers.[name=submit].env.[name=SPARK_IMAGE].value

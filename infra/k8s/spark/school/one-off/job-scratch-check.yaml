@@ -1,0 +1,70 @@
+# Scratch-space check (#22): Spark's GroupByTest example in cluster mode, which writes about
+# 400 MB of shuffle files (8 map tasks x 50,000 pairs x 1,000 bytes, read by 4 reduce tasks).
+# While it runs, the files must be under /spark-local on the on-demand claims, not in the pods'
+# own filesystem. How to watch it: ../../README.md, "Scratch space". Needs no Kafka or HDFS.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: scratch-check
+  labels:
+    one-off: scratch-check
+spec:
+  backoffLimit: 0 # a failed submit must not start more drivers
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        spark-job: scratch-check
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      securityContext: # the image says USER spark by name; Kubernetes needs the number
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      containers:
+        - name: submit
+          image: spark-jobs
+          command: [/opt/spark/bin/spark-submit]
+          args:
+            - --name
+            - scratch-check
+            - --class
+            - org.apache.spark.examples.GroupByTest
+            - --conf
+            - spark.kubernetes.container.image=$(SPARK_IMAGE)
+            - --conf
+            - spark.executor.instances=2
+            - --conf
+            - spark.kubernetes.driver.label.spark-job=scratch-check
+            - --conf
+            - spark.kubernetes.executor.label.spark-job=scratch-check
+            - local:///opt/spark/examples/jars/spark-examples.jar
+            - "8" # map tasks
+            - "50000" # pairs per map task
+            - "1000" # bytes per value
+            - "4" # reduce tasks
+          env:
+            - name: SPARK_IMAGE
+              value: set-by-kustomize # replacements in kustomization.yaml
+            - name: SPARK_CONF_DIR
+              value: /opt/spark/conf-school
+          volumeMounts:
+            - name: spark-conf
+              mountPath: /opt/spark/conf-school
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: spark-conf
+          configMap:
+            name: spark-school-conf

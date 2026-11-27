@@ -1,0 +1,11 @@
+# REHEARSAL ONLY. The school cluster's storage class name, served here by OrbStack's local-path
+# provisioner, so ../school (its spark-defaults.conf and the recorders' scratch volumes ask for
+# hostpath-custom, #22) runs here unchanged. Like hostpath-custom, it does not enforce sizes.
+# Cluster-wide object: never apply this to the school cluster, which has its own.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: hostpath-custom
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
